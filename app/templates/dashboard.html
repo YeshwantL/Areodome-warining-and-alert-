@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Aerodrome Warning System{% endblock %}
+
+{% block content %}
+<div id="dashboard-app">
+    <div class="dashboard-header">
+        <h2 id="user-role-display">Loading...</h2>
+        <div id="admin-controls" style="display: none;">
+            <button onclick="toggleAudio()" id="audio-btn">Enable Audio</button>
+        </div>
+    </div>
+
+    <div class="dashboard-grid">
+        <!-- Left Column: Alert Creation (Regional) or Chat List (Admin) -->
+        <div class="left-panel">
+            <div id="create-alert-section" style="display: none;" class="card">
+                <h3>Create Aerodrome Warning</h3>
+                <form id="alertForm" onsubmit="submitAlert(event)">
+                    <div class="form-group">
+                        <label for="alertType">Type</label>
+                        <select id="alertType" name="type" onchange="toggleAlertFields()" required>
+                            <option value="Wind">Wind</option>
+                            <option value="Thunderstorm">Thunderstorm</option>
+                        </select>
+                    </div>
+
+                    <!-- Wind Fields -->
+                    <div id="wind-fields">
+                        <div class="form-group">
+                            <label>Wind Speed (KT)</label>
+                            <input type="number" name="wind_speed" placeholder="e.g. 15">
+                        </div>
+                        <div class="form-group">
+                            <label>Max Gust (KT)</label>
+                            <input type="number" name="max_gust" placeholder="e.g. 25">
+                        </div>
+                        <div class="form-group">
+                            <label>Wind Direction (Degrees)</label>
+                            <input type="number" name="wind_dir" placeholder="e.g. 270">
+                        </div>
+                    </div>
+
+                    <!-- Thunderstorm Fields -->
+                    <div id="ts-fields" style="display: none;">
+                        <div class="form-group">
+                            <label>Forecast Type</label>
+                            <select name="ts_type">
+                                <option value="OBS">OBS (Observed)</option>
+                                <option value="FCST">FCST (Forecast)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Intensity</label>
+                            <select name="ts_intensity">
+                                <option value="FBL">FBL (Feeble)</option>
+                                <option value="MOD">MOD (Moderate)</option>
+                                <option value="HVY">HVY (Heavy)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Change</label>
+                            <select name="ts_change">
+                                <option value="NC">NC (No Change)</option>
+                                <option value="WKN">WKN (Weakening)</option>
+                                <option value="NTSF">NTSF (No Thunderstorm Forecast)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Time (UTC)</label>
+                        <input type="text" name="time_utc" placeholder="HHMM" pattern="\d{4}" required>
+                    </div>
+
+                    <button type="submit">Send Alert</button>
+                </form>
+            </div>
+
+            <!-- Chat Section -->
+            <div class="card" style="margin-top: 2rem;">
+                <h3>Communication</h3>
+                <div id="chat-partner-select" style="display: none;">
+                    <label>Select Airport:</label>
+                    <select id="chat-partner" onchange="loadChat(this.value)">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+                <div id="chat-box" class="chat-box">
+                    <!-- Messages go here -->
+                </div>
+                <form onsubmit="sendChat(event)" class="chat-input">
+                    <input type="text" id="chat-message" placeholder="Type a message..." required>
+                    <button type="submit">Send</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Right Column: Active Alerts & History -->
+        <div class="right-panel">
+            <div class="card">
+                <h3>Active Alerts</h3>
+                <div id="active-alerts-list">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <div id="history-section" style="display: none;" class="card" style="margin-top: 2rem;">
+                <h3>Past 24 Hours History</h3>
+                <div id="history-list">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/dashboard.js"></script>
+{% endblock %}

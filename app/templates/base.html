@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Aerodrome Warning System{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header>
+        <div class="logo">Aerodrome Warning System</div>
+        <nav>
+            {% if user %}
+                <span>Welcome, {{ user.username }}</span>
+                <a href="/logout" onclick="logout()">Logout</a>
+            {% endif %}
+        </nav>
+    </header>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+    <footer>
+        &copy; 2025 Aerodrome Warning Alert Management System
+    </footer>
+    <script src="/static/app.js"></script>
+</body>
+</html>
