@@ -370,6 +370,46 @@ function speak(text) {
     }
 }
 
+const ALARM_DURATION_MS = 60000; // 1 minute
+let alarmInterval = null;
+let alarmTimeout = null;
+let isAlarmPlaying = false;
+
+function stopAlarm() {
+    if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+    }
+    if (alarmInterval) clearInterval(alarmInterval);
+    if (alarmTimeout) clearTimeout(alarmTimeout);
+
+    isAlarmPlaying = false;
+    document.getElementById('stop-alarm-btn').style.display = 'none';
+}
+
+function triggerAlarm(airportName) {
+    if (isAlarmPlaying) return; // Already playing
+
+    isAlarmPlaying = true;
+    document.getElementById('stop-alarm-btn').style.display = 'inline-block';
+
+    const text = `Aerodrome alert received. Warning from ${airportName}`;
+
+    // Play immediately
+    speak(text);
+
+    // Loop every ~4 seconds (approx duration of speech)
+    // Actually, speak() queues utterances. We can queue many or use interval.
+    // Let's use interval every 5 seconds to be safe.
+    alarmInterval = setInterval(() => {
+        speak(text);
+    }, 5000);
+
+    // Stop after 1 minute
+    alarmTimeout = setTimeout(() => {
+        stopAlarm();
+    }, ALARM_DURATION_MS);
+}
+
 // Update fetchActiveAlerts to play sound
 // We need to track last alert ID to know if new one arrived.
 let lastAlertId = 0;
@@ -381,19 +421,72 @@ async function fetchActiveAlerts() {
             const alerts = await response.json();
             renderAlerts(alerts);
 
-            if (currentUser.role === 'mwo_admin' && audioEnabled) {
+            // Audio Trigger for Admin
+            if (currentUser && currentUser.role === 'mwo_admin' && audioEnabled) {
                 const newAlerts = alerts.filter(a => a.id > lastAlertId);
                 if (newAlerts.length > 0) {
                     newAlerts.forEach(a => {
-                        speak(`New Alert from Airport ID ${a.sender_id}`); // Ideally Airport Name
+                        const airportName = a.content.airport || a.sender_id;
+                        triggerAlarm(airportName);
                     });
-                    lastAlertId = Math.max(...alerts.map(a => a.id));
                 }
-            } else if (alerts.length > 0) {
+            }
+            if (alerts.length > 0) {
                 lastAlertId = Math.max(...alerts.map(a => a.id));
             }
         }
     } catch (e) {
         console.error(e);
+    }
+}
+// Admin Functions
+function toggleAdminPanel() {
+    const panel = document.getElementById('admin-panel');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+async function addAirport(event) {
+    event.preventDefault();
+    const code = document.getElementById('new-airport-code').value;
+    const name = document.getElementById('new-airport-name').value;
+    const password = document.getElementById('new-airport-password').value;
+    const msgDiv = document.getElementById('admin-msg');
+
+    try {
+        const response = await fetch('/admin/add_airport', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({ 
+                airport_code: code,
+                airport_name: name,
+                password: password
+            })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            msgDiv.innerText = `Success: ${data.message} (User: ${data.username})`;
+            msgDiv.style.color = 'green';
+            document.getElementById('new-airport-code').value = '';
+            document.getElementById('new-airport-name').value = '';
+            document.getElementById('new-airport-password').value = '';
+            // Refresh airport list if chat uses it
+            loadAirportList();
+        } else {
+            const err = await response.json();
+            msgDiv.innerText = `Error: ${err.detail}`;
+            msgDiv.style.color = 'red';
+        }
+    } catch (e) {
+        console.error(e);
+        msgDiv.innerText = "Network error";
+        msgDiv.style.color = 'red';
     }
 }

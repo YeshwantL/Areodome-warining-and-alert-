@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from . import models, database, tasks
-from .routers import auth, alerts, chat, pages
+from .routers import auth, alerts, chat, pages, admin
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -13,6 +13,7 @@ app.include_router(auth.router)
 app.include_router(alerts.router)
 app.include_router(chat.router)
 app.include_router(pages.router)
+app.include_router(admin.router)
 
 @app.on_event("startup")
 def start_scheduler():
