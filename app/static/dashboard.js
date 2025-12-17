@@ -30,6 +30,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Load chat with Admin (ID 1 usually, but we need to fetch partner ID or just send to Admin)
         // For now, let's assume Admin ID is 1.
         loadChat(1);
+
+        // Initialize Preview and Listeners
+        initPreview();
+
     } else if (currentUser.role === 'mwo_admin') {
         document.getElementById('admin-controls').style.display = 'block';
         document.getElementById('history-section').style.display = 'block';
@@ -48,6 +52,80 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
+function initPreview() {
+    // We do NOT auto-fill visible fields anymore. User enters HHMM only.
+
+    // Attach event listeners to all inputs in the form
+    const form = document.getElementById('alertForm');
+    const inputs = form.querySelectorAll('input, select');
+    inputs.forEach(input => {
+        input.addEventListener('input', updatePreview);
+        input.addEventListener('change', updatePreview);
+    });
+
+    // Initial update
+    updatePreview();
+}
+
+function getCurrentDateDD() {
+    const now = new Date();
+    // Return UTC Day
+    return String(now.getUTCDate()).padStart(2, '0');
+}
+
+function updatePreview() {
+    const formData = new FormData(document.getElementById('alertForm'));
+
+    const airport = formData.get('airport_code') || 'VASD';
+    const seq = formData.get('seq_num') || '1';
+
+    // User inputs only Time (HHMM)
+    const validFromTime = formData.get('valid_from') || '';
+    const validToTime = formData.get('valid_to') || '';
+
+    // Prepend Current Date (DD)
+    const day = getCurrentDateDD();
+
+    // Use fallback if empty
+    // If empty input, do we show just DD? Or DDHHMM?
+    // Let's show DDHHMM as placeholder in preview if empty.
+
+    let validFrom = validFromTime ? (day + validFromTime) : 'DDHHMM';
+    let validTo = validToTime ? (day + validToTime) : 'DDHHMM';
+
+    const type = formData.get('type');
+
+    // Header
+    // VASD 080615 AD WRNG 1 VALID 080630/081030 
+
+    let text = `${airport} ${validFrom} AD WRNG ${seq} VALID ${validFrom}/${validTo}`;
+
+    if (type === 'Wind') {
+        // SFC WSPD 17KT MAX27 FROM 020 DEG FCST NC=
+        const speed = formData.get('wind_speed') || '00';
+        const gust = formData.get('max_gust') || '00';
+        const dir = formData.get('wind_dir') || '000';
+        const wType = formData.get('wind_type') || 'FCST';
+        const wChange = formData.get('wind_change') || 'NC';
+
+        text += ` SFC WSPD ${speed}KT MAX${gust} FROM ${dir} DEG ${wType} ${wChange}=`;
+    } else {
+        // TS Format
+        const tIntensity = formData.get('ts_intensity') || '';
+        const tType = formData.get('ts_type') || '';
+        const tChange = formData.get('ts_change') || '';
+
+        // Example: TS FBL OBS NC=
+        text += ` TS ${tIntensity} ${tType} ${tChange}=`;
+    }
+
+    // Update Textarea Value
+    // We update it unless user is typing IN IT? 
+    // Requirement is editable preview.
+    // For now always overwrite. 
+    document.getElementById('alert-preview').value = text.toUpperCase();
+}
+
 function toggleAlertFields() {
     const type = document.getElementById('alertType').value;
     if (type === 'Wind') {
@@ -57,30 +135,55 @@ function toggleAlertFields() {
         document.getElementById('wind-fields').style.display = 'none';
         document.getElementById('ts-fields').style.display = 'block';
     }
+    updatePreview();
 }
 
 async function submitAlert(event) {
     event.preventDefault();
     const form = event.target;
+
     const formData = new FormData(form);
     const type = formData.get('type');
 
+    const generatedText = document.getElementById('alert-preview').value;
+
+    // We must ensure the valid_from/to sent to backend includes the date
+    const day = getCurrentDateDD();
+    // If user typed 1230, validFrom = DD1230
+    const validFrom = day + (formData.get('valid_from') || '');
+    const validTo = day + (formData.get('valid_to') || '');
+
     let content = {};
+
     if (type === 'Wind') {
         content = {
             speed: formData.get('wind_speed'),
             gust: formData.get('max_gust'),
             direction: formData.get('wind_dir'),
-            time: formData.get('time_utc')
+            w_type: formData.get('wind_type'),
+            change: formData.get('wind_change'),
+
+            airport: formData.get('airport_code'),
+            seq: formData.get('seq_num'),
+            valid_from: validFrom,
+            valid_to: validTo,
+            generated_text: generatedText
         };
     } else {
         content = {
             type: formData.get('ts_type'),
             intensity: formData.get('ts_intensity'),
             change: formData.get('ts_change'),
-            time: formData.get('time_utc')
+
+            airport: formData.get('airport_code'),
+            seq: formData.get('seq_num'),
+            valid_from: validFrom,
+            valid_to: validTo,
+            generated_text: generatedText
         };
     }
+
+    content.time = validFrom;
 
     try {
         const response = await fetch('/alerts/', {
@@ -91,8 +194,10 @@ async function submitAlert(event) {
 
         if (response.ok) {
             alert('Alert sent successfully!');
-            form.reset();
             fetchActiveAlerts();
+            form.reset();
+            updatePreview();
+            // initPreview(); 
         } else {
             alert('Failed to send alert');
         }
@@ -130,16 +235,26 @@ function renderAlerts(alerts) {
         div.style.background = '#fff3cd';
 
         let contentStr = '';
-        if (alert.type === 'Wind') {
-            contentStr = `Wind: ${alert.content.direction}° ${alert.content.speed}KT G${alert.content.gust}KT SFC`;
+
+        // Use generated_text if available
+        if (alert.content.generated_text) {
+            contentStr = `<strong>${alert.content.generated_text}</strong>`;
         } else {
-            contentStr = `TS: ${alert.content.intensity} ${alert.content.type} ${alert.content.change}`;
+            if (alert.content.airport) {
+                contentStr = `<strong>${alert.content.airport} WRNG ${alert.content.seq}</strong><br>`;
+            }
+
+            if (alert.type === 'Wind') {
+                contentStr += `Wind: ${alert.content.direction}° ${alert.content.speed}KT G${alert.content.gust}KT`;
+            } else {
+                contentStr += `TS: ${alert.content.intensity} ${alert.content.type} ${alert.content.change}`;
+            }
         }
 
         div.innerHTML = `
             <strong>${alert.type} Alert</strong> <br>
             ${contentStr} <br>
-            <small>Time: ${alert.content.time} UTC</small>
+            <small>Valid: ${alert.content.valid_from || alert.content.time} UTC</small>
             ${currentUser.role === 'mwo_admin' ? `<br><button onclick="finalizeAlert(${alert.id})">Finalize</button>` : ''}
         `;
         list.appendChild(div);
@@ -151,23 +266,11 @@ async function finalizeAlert(id) {
     if (!warning) return;
 
     try {
-        const response = await fetch(`/alerts/${id}/finalize`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ warning_text: warning }) // Wait, endpoint expects query or body? I defined it as query param in python code?
-            // Let's check python code. I defined: async def finalize_alert(alert_id: int, warning_text: str, ...
-            // FastAPI defaults to query param for simple types unless Body() is used.
-            // So I should send it as query param or change backend.
-            // I'll send as query param for now to match default behavior.
-        });
-        // Actually, let's fix backend to be explicit or send as query.
-        // URL: /alerts/{id}/finalize?warning_text=...
-
-        const res = await fetch(`/alerts/${id}/finalize?warning_text=${encodeURIComponent(warning)}`, {
+        const response = await fetch(`/alerts/${id}/finalize?warning_text=${encodeURIComponent(warning)}`, {
             method: 'POST'
         });
 
-        if (res.ok) {
+        if (response.ok) {
             fetchActiveAlerts();
         }
     } catch (e) {

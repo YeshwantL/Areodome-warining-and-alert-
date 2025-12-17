@@ -17,6 +17,29 @@
             <div id="create-alert-section" style="display: none;" class="card">
                 <h3>Create Aerodrome Warning</h3>
                 <form id="alertForm" onsubmit="submitAlert(event)">
+                    <!-- Common Fields -->
+                    <div class="form-row" style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <div class="form-group" style="flex: 1;">
+                            <label>Airport Code</label>
+                            <input type="text" name="airport_code" value="VASD" required>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label>Sequence #</label>
+                            <input type="number" name="seq_num" value="1" min="1" required>
+                        </div>
+                    </div>
+
+                    <div class="form-row" style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <div class="form-group" style="flex: 1;">
+                            <label>Valid From (UTC)</label>
+                            <input type="text" name="valid_from" placeholder="HHMM" required>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label>Valid To (UTC)</label>
+                            <input type="text" name="valid_to" placeholder="HHMM" required>
+                        </div>
+                    </div>
+
                     <div class="form-group">
                         <label for="alertType">Type</label>
                         <select id="alertType" name="type" onchange="toggleAlertFields()" required>
@@ -29,15 +52,31 @@
                     <div id="wind-fields">
                         <div class="form-group">
                             <label>Wind Speed (KT)</label>
-                            <input type="number" name="wind_speed" placeholder="e.g. 15">
+                            <input type="number" name="wind_speed" placeholder="e.g. 17">
                         </div>
                         <div class="form-group">
                             <label>Max Gust (KT)</label>
-                            <input type="number" name="max_gust" placeholder="e.g. 25">
+                            <input type="number" name="max_gust" placeholder="e.g. 27">
                         </div>
                         <div class="form-group">
                             <label>Wind Direction (Degrees)</label>
-                            <input type="number" name="wind_dir" placeholder="e.g. 270">
+                            <input type="number" name="wind_dir" placeholder="e.g. 020">
+                        </div>
+                        <!-- Added for format matching -->
+                        <div class="form-group">
+                            <label>Forecast Type</label>
+                            <select name="wind_type">
+                                <option value="OBS">OBS</option>
+                                <option value="FCST">FCST</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Change</label>
+                            <select name="wind_change">
+                                <option value="NC">NC</option>
+                                <option value="WKN">WKN</option>
+                                <option value="INTF">INTF</option>
+                            </select>
                         </div>
                     </div>
 
@@ -46,31 +85,32 @@
                         <div class="form-group">
                             <label>Forecast Type</label>
                             <select name="ts_type">
-                                <option value="OBS">OBS (Observed)</option>
-                                <option value="FCST">FCST (Forecast)</option>
+                                <option value="OBS">OBS</option>
+                                <option value="FCST">FCST</option>
                             </select>
                         </div>
                         <div class="form-group">
                             <label>Intensity</label>
                             <select name="ts_intensity">
-                                <option value="FBL">FBL (Feeble)</option>
-                                <option value="MOD">MOD (Moderate)</option>
-                                <option value="HVY">HVY (Heavy)</option>
+                                <option value="FBL">FBL</option>
+                                <option value="MOD">MOD</option>
+                                <option value="HVY">HVY</option>
                             </select>
                         </div>
                         <div class="form-group">
                             <label>Change</label>
                             <select name="ts_change">
-                                <option value="NC">NC (No Change)</option>
-                                <option value="WKN">WKN (Weakening)</option>
-                                <option value="NTSF">NTSF (No Thunderstorm Forecast)</option>
+                                <option value="NC">NC</option>
+                                <option value="WKN">WKN</option>
+                                <option value="NTSF">NTSF</option>
                             </select>
                         </div>
                     </div>
 
+                    <!-- Live Preview -->
                     <div class="form-group">
-                        <label>Time (UTC)</label>
-                        <input type="text" name="time_utc" placeholder="HHMM" pattern="\d{4}" required>
+                        <label>Message Preview (Editable):</label>
+                        <textarea id="alert-preview" class="alert-preview" name="generated_text" rows="3"></textarea>
                     </div>
 
                     <button type="submit">Send Alert</button>
