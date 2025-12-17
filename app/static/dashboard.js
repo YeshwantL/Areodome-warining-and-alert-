@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     fetchActiveAlerts();
 
     // Polling
-    setInterval(fetchActiveAlerts, 10000); // 10s
+    setInterval(fetchActiveAlerts, 2000); // 2s polling for faster sound response
     if (currentUser.role === 'mwo_admin') {
         // Poll for new alerts to play sound
     }
