@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Aerodrome Warning System{% endblock %}
+
+{% block content %}
+<div id="dashboard-app">
+    <div class="dashboard-header">
+        <h2 id="user-role-display">Loading...</h2>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <div id="admin-controls" style="display: none; align-items: center; gap: 10px;">
+                <button onclick="toggleAudio()" id="audio-btn">Enable Audio</button>
+                <button onclick="stopAlarm()" id="stop-alarm-btn"
+                    style="display: none; background-color: #dc3545; animation: pulse 1s infinite;">STOP ALARM</button>
+                <button onclick="toggleAdminPanel()" id="manage-airports-btn" style="background-color: #2c3e50;">Manage
+                    Airports</button>
+            </div>
+            <a href="/change-password"
+                style="text-decoration: none; color: #fff; background-color: #7f8c8d; padding: 8px 12px; border-radius: 4px;">Change
+                Password</a>
+            <button onclick="logout()" style="background-color: #c0392b;">Logout</button>
+        </div>
+    </div>
+
+    <!-- Admin Panel Overlay -->
+    <div id="admin-panel"
+        style="display: none; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;">
+        <h3>Add New Airport</h3>
+        <form onsubmit="addAirport(event)" style="display: flex; gap: 10px; align-items: flex-end;">
+            <div class="form-group">
+                <label>Airport Code</label>
+                <input type="text" id="new-airport-code" placeholder="e.g. VAZZ" required style="padding: 8px;">
+            </div>
+            <div class="form-group">
+                <label>Airport Name (Optional)</label>
+                <input type="text" id="new-airport-name" placeholder="Name" style="padding: 8px;">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="text" id="new-airport-password" placeholder="Def: Airport@123" style="padding: 8px;">
+            </div>
+            <button type="submit" style="height: 36px;">Add Airport</button>
+        </form>
+        <div id="admin-msg" style="margin-top: 10px;"></div>
+        <hr>
+        <h3>View Passwords</h3>
+        <div>
+            <button onclick="promptAdminPassword()">View All Passwords</button>
+            <div id="password-list-container" style="margin-top: 10px; display: none;">
+                <!-- Table for passwords -->
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-grid">
+        <!-- Left Column: Alert Creation (Regional) or Chat List (Admin) -->
+        <div class="left-panel">
+            <div id="create-alert-section" style="display: none;" class="card">
+                <h3>Create Aerodrome Warning</h3>
+                <form id="alertForm" onsubmit="submitAlert(event)">
+                    <!-- Common Fields -->
+                    <div class="form-row" style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <div class="form-group" style="flex: 1;">
+                            <label>Airport Code</label>
+                            <input type="text" name="airport_code" value="VASD" required>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label>Sequence #</label>
+                            <input type="number" name="seq_num" value="1" min="1" required>
+                        </div>
+                    </div>
+
+                    <div class="form-row" style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <div class="form-group" style="flex: 1;">
+                            <label>Valid From (UTC)</label>
+                            <input type="text" name="valid_from" placeholder="HHMM" required>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label>Valid To (UTC)</label>
+                            <input type="text" name="valid_to" placeholder="HHMM" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="alertType">Type</label>
+                        <select id="alertType" name="type" onchange="toggleAlertFields()" required>
+                            <option value="Wind">Wind</option>
+                            <option value="Thunderstorm">Thunderstorm</option>
+                        </select>
+                    </div>
+
+                    <!-- Wind Fields -->
+                    <div id="wind-fields">
+                        <div class="form-group">
+                            <label>Wind Speed (KT)</label>
+                            <input type="number" name="wind_speed" placeholder="e.g. 17">
+                        </div>
+                        <div class="form-group">
+                            <label>Max Gust (KT)</label>
+                            <input type="number" name="max_gust" placeholder="e.g. 27">
+                        </div>
+                        <div class="form-group">
+                            <label>Wind Direction (Degrees)</label>
+                            <input type="number" name="wind_dir" placeholder="e.g. 020">
+                        </div>
+                        <!-- Added for format matching -->
+                        <div class="form-group">
+                            <label>Forecast Type</label>
+                            <select name="wind_type">
+                                <option value="OBS">OBS</option>
+                                <option value="FCST">FCST</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Change</label>
+                            <select name="wind_change">
+                                <option value="NC">NC</option>
+                                <option value="WKN">WKN</option>
+                                <option value="INTF">INTF</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Thunderstorm Fields -->
+                    <div id="ts-fields" style="display: none;">
+                        <div class="form-group">
+                            <label>Forecast Type</label>
+                            <select name="ts_type">
+                                <option value="OBS">OBS</option>
+                                <option value="FCST">FCST</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Intensity</label>
+                            <select name="ts_intensity">
+                                <option value="FBL">FBL</option>
+                                <option value="MOD">MOD</option>
+                                <option value="HVY">HVY</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Change</label>
+                            <select name="ts_change">
+                                <option value="NC">NC</option>
+                                <option value="WKN">WKN</option>
+                                <option value="NTSF">NTSF</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Live Preview -->
+                    <div class="form-group">
+                        <label>Message Preview (Editable):</label>
+                        <textarea id="alert-preview" class="alert-preview" name="generated_text" rows="3"></textarea>
+                    </div>
+
+                    <button type="submit">Send Alert</button>
+                </form>
+            </div>
+
+            <!-- Chat Section -->
+            <div class="card" style="margin-top: 2rem;">
+                <h3>Communication</h3>
+                <div id="chat-partner-select" style="display: none;">
+                    <label>Select Airport:</label>
+                    <select id="chat-partner" onchange="loadChat(this.value)">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+                <div id="chat-box" class="chat-box">
+                    <!-- Messages go here -->
+                </div>
+                <form onsubmit="sendChat(event)" class="chat-input">
+                    <input type="text" id="chat-message" placeholder="Type a message..." required>
+                    <button type="submit">Send</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Right Column: Active Alerts & History -->
+        <div class="right-panel">
+            <div class="card">
+                <h3>Active Alerts</h3>
+                <div id="active-alerts-list">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <div class="card" id="history-section" style="margin-top: 2rem; display: none;">
+                <h3>Historical Alerts</h3>
+                <div class="history-controls"
+                    style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px;">
+                    <div style="display: flex; max-width: 100%; gap: 5px;">
+                        <input type="date" id="history-date" placeholder="Date" style="flex: 1;">
+                        <input type="month" id="history-month" placeholder="Month" style="flex: 1;">
+                    </div>
+                    <div id="admin-history-filter" style="display: none;">
+                        <select id="history-airport-select" style="width: 100%;">
+                            <option value="">All Airports</option>
+                            <!-- Populated by JS -->
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 5px;">
+                        <button onclick="searchHistory()" style="background-color: #2c3e50; flex: 1;">Search</button>
+                        <button onclick="clearHistory()" style="background-color: #95a5a6;">Clear</button>
+                    </div>
+                </div>
+                <div id="history-list" style="max-height: 400px; overflow-y: auto;">
+                    <!-- Populated by JS -->
+                    <p style="color: grey; font-size: 0.9em;">Select a date or month to view history.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/dashboard.js"></script>
+<style>
+    @keyframes pulse {
+        0% {
+            transform: scale(1);
+        }
+
+        50% {
+            transform: scale(1.05);
+        }
+
+        100% {
+            transform: scale(1);
+        }
+    }
+</style>
+{% endblock %}
