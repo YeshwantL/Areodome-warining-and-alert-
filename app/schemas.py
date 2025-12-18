@@ -19,6 +19,10 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
 
+class UserPasswordChange(BaseModel):
+    old_password: str
+    new_password: str
+
 class User(UserBase):
     id: int
     class Config:
@@ -38,6 +42,7 @@ class Alert(AlertBase):
     created_at: datetime
     finalized_at: Optional[datetime] = None
     final_warning_text: Optional[str] = None
+    admin_reply: Optional[str] = None
     
     class Config:
         orm_mode = True

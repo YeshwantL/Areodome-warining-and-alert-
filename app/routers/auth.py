@@ -24,3 +24,33 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 @router.get("/me", response_model=schemas.User)
 async def read_users_me(current_user: models.User = Depends(auth.get_current_active_user)):
     return current_user
+
+@router.post("/change-password")
+async def change_password(
+    password_data: schemas.UserPasswordChange,
+    current_user: models.User = Depends(auth.get_current_active_user),
+    db: Session = Depends(database.get_db)
+):
+    if not auth.verify_password(password_data.old_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect old password"
+        )
+    
+    current_user.password_hash = auth.get_password_hash(password_data.new_password)
+    current_user.password_encrypted = auth.encrypt_password(password_data.new_password)
+    
+    # Notify Admin (ID 1)
+    # Check if admin exists first to avoid error? Assuming ID 1 is mwo_admin from seed.
+    admin_user = db.query(models.User).filter(models.User.role == models.UserRole.MWO_ADMIN).first()
+    if admin_user and admin_user.id != current_user.id:
+        notification_msg = f"User {current_user.username} has changed their password."
+        new_chat = models.Chat(
+            sender_id=current_user.id,
+            receiver_id=admin_user.id,
+            message=notification_msg
+        )
+        db.add(new_chat)
+
+    db.commit()
+    return {"message": "Password changed successfully"}

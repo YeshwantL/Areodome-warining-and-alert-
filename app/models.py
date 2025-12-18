@@ -19,6 +19,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
     password_hash = Column(String)
+    password_encrypted = Column(String, nullable=True) # For Admin recovery/view
     role = Column(Enum(UserRole))
     airport_code = Column(String, nullable=True) # e.g., VABB, VOMM. Null for Admin if generic.
 
@@ -39,6 +40,9 @@ class Alert(Base):
     
     # For finalized warning text
     final_warning_text = Column(String, nullable=True)
+    
+    # Admin Reply
+    admin_reply = Column(String, nullable=True)
 
     sender = relationship("User", back_populates="alerts")
 

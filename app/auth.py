@@ -13,6 +13,24 @@ SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkeychangeinproduction")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
 
+from cryptography.fernet import Fernet
+import base64
+
+# Derive a 32-byte key from SECRET_KEY for Fernet (Must be url-safe base64-encoded 32-byte key)
+# For simplicity in this non-prod env, we pad/truncate standard key or generate one.
+# Let's just generate a deterministic key based on SECRET_KEY so it persists across restarts if SECRET_KEY is constant.
+def get_fernet():
+    key = SECRET_KEY.encode()[:32].ljust(32, b'0')
+    return Fernet(base64.urlsafe_b64encode(key))
+
+def encrypt_password(password: str) -> str:
+    f = get_fernet()
+    return f.encrypt(password.encode()).decode()
+
+def decrypt_password(encrypted_password: str) -> str:
+    f = get_fernet()
+    return f.decrypt(encrypted_password.encode()).decode()
+
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 

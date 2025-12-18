@@ -38,8 +38,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('admin-controls').style.display = 'block';
         document.getElementById('history-section').style.display = 'block';
         document.getElementById('chat-partner-select').style.display = 'block';
+        document.getElementById('chat-partner-select').style.display = 'block';
         // Load list of airports for chat (Mock for now or fetch)
         loadAirportList();
+
+        // Show Admin History Filter
+        document.getElementById('admin-history-filter').style.display = 'block';
+        // Populate it (re-use loadAirportList logic or separate)
+        loadHistoryAirports();
     }
 
     // Initial Fetch
@@ -251,11 +257,23 @@ function renderAlerts(alerts) {
             }
         }
 
+        // Show Admin Reply if exists
+        let replyHtml = '';
+        if (alert.admin_reply) {
+            replyHtml = `<div style="margin-top: 5px; padding: 5px; background: #e0f7fa; border-left: 3px solid #00acc1;">
+                <strong>Admin Reply:</strong> ${alert.admin_reply}
+            </div>`;
+        }
+
         div.innerHTML = `
             <strong>${alert.type} Alert</strong> <br>
             ${contentStr} <br>
             <small>Valid: ${alert.content.valid_from || alert.content.time} UTC</small>
-            ${currentUser.role === 'mwo_admin' ? `<br><button onclick="finalizeAlert(${alert.id})">Finalize</button>` : ''}
+            ${replyHtml}
+            ${currentUser.role === 'mwo_admin' ? `<div style="margin-top: 5px;">
+                <button onclick="finalizeAlert(${alert.id})">Finalize</button>
+                <button onclick="replyToAlert(${alert.id})" style="background-color: #008CBA;">Reply</button>
+            </div>` : ''}
         `;
         list.appendChild(div);
     });
@@ -343,9 +361,35 @@ async function sendChat(event) {
     }
 }
 
+async function loadHistoryAirports() {
+    const select = document.getElementById('history-airport-select');
+    // Clear existing, keep 'All'
+    select.innerHTML = '<option value="">All Airports</option>';
+
+    try {
+        const response = await fetch('/admin/airports', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+        if (response.ok) {
+            const airports = await response.json();
+            airports.forEach(a => {
+                const option = document.createElement('option');
+                option.value = a.code;
+                option.innerText = `${a.code} - ${a.name}`;
+                select.appendChild(option);
+            });
+        }
+    } catch (e) {
+        console.error("Failed to load airports", e);
+    }
+}
+
+
 async function loadAirportList() {
     // In a real app, fetch from /users/regional
     // For prototype, we know we created 'vabb_airport' (ID 2)
+    // We can re-use /admin/airports if user is admin, but for chat logic we might need IDs.
+    // The previous logic used hardcoded ID 2. Let's keep it simple for now or fetch.
     const select = document.getElementById('chat-partner');
     select.innerHTML = '<option value="2">VABB (Regional)</option>';
     currentChatPartnerId = 2;
@@ -431,9 +475,40 @@ async function fetchActiveAlerts() {
                     });
                 }
             }
+
+            // Audio Trigger for User (Admin Reply)
+            if (currentUser && currentUser.role === 'regional_airport' && audioEnabled) {
+                alerts.forEach(a => {
+                    if (a.admin_reply && !playedReplies.has(a.id)) {
+                        speak(`Admin replied: ${a.admin_reply}`);
+                        playedReplies.add(a.id);
+                    }
+                });
+            }
+
             if (alerts.length > 0) {
                 lastAlertId = Math.max(...alerts.map(a => a.id));
             }
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+// Track played replies to avoid repeating
+const playedReplies = new Set();
+
+async function replyToAlert(id) {
+    const reply = prompt("Enter Reply:");
+    if (!reply) return;
+
+    try {
+        const response = await fetch(`/alerts/${id}/reply?reply_text=${encodeURIComponent(reply)}`, {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            fetchActiveAlerts();
         }
     } catch (e) {
         console.error(e);
@@ -463,7 +538,7 @@ async function addAirport(event) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${localStorage.getItem('token')}`
             },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
                 airport_code: code,
                 airport_name: name,
                 password: password
@@ -489,4 +564,133 @@ async function addAirport(event) {
         msgDiv.innerText = "Network error";
         msgDiv.style.color = 'red';
     }
+}
+
+// History Functions
+async function searchHistory() {
+    const date = document.getElementById('history-date').value;
+    const month = document.getElementById('history-month').value;
+    const airport = document.getElementById('history-airport-select').value;
+
+    let url = '/alerts/history?';
+    if (date) url += `date=${date}&`;
+    if (month) url += `month=${month}&`; // Fixed bug: else if prevented both (though technically UI might only allow one or backend handles priority)
+    // Actually typically one or the other. Backend handles date priority. Using Query Params is fine.
+
+    if (airport) url += `airport_code=${airport}`;
+
+    // Clear previous
+    const list = document.getElementById('history-list');
+    list.innerHTML = '<p>Loading...</p>';
+
+    try {
+        const response = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+
+        if (response.ok) {
+            const alerts = await response.json();
+            renderHistory(alerts);
+        } else {
+            const err = await response.json();
+            list.innerHTML = `<p style="color: red;">Error: ${err.detail || 'Failed'}</p>`;
+        }
+    } catch (e) {
+        console.error(e)
+        list.innerHTML = `<p style="color: red;">Network Error</p>`;
+    }
+}
+
+function renderHistory(alerts) {
+    const list = document.getElementById('history-list');
+    list.innerHTML = '';
+
+    if (alerts.length === 0) {
+        list.innerHTML = '<p>No alerts found.</p>';
+        return;
+    }
+
+    alerts.forEach(alert => {
+        const div = document.createElement('div');
+        div.className = 'alert-item'; // Use same styling or similar
+        div.style.padding = '8px';
+        div.style.marginBottom = '8px';
+        div.style.border = '1px solid #ddd';
+        div.style.borderRadius = '4px';
+        div.style.background = '#f9f9f9';
+
+        // Simplified view for history
+        let contentStr = '';
+        if (alert.content.generated_text) contentStr = `<strong>${alert.content.generated_text}</strong>`;
+        else contentStr = `Alert Type: ${alert.type}`;
+
+        // Show Admin Reply
+        let replyHtml = '';
+        if (alert.admin_reply) {
+            replyHtml = `<div style="font-size: 0.9em; color: #00796b; margin-top: 4px;">Reply: ${alert.admin_reply}</div>`;
+        }
+
+        const dateStr = new Date(alert.created_at).toLocaleString();
+
+        div.innerHTML = `
+            <div style="font-size: 0.85em; color: #555;">${dateStr} (Sender: ${alert.sender_id})</div>
+            ${contentStr}
+            ${replyHtml}
+        `;
+        list.appendChild(div);
+    });
+}
+
+function clearHistory() {
+    document.getElementById('history-date').value = '';
+    document.getElementById('history-month').value = '';
+    document.getElementById('history-airport-select').value = '';
+    document.getElementById('history-list').innerHTML = '<p style="color: grey; font-size: 0.9em;">Select a date or month to view history.</p>';
+}
+
+async function promptAdminPassword() {
+    const password = prompt("Please re-enter your Admin Password to view user passwords:");
+    if (!password) return;
+
+    try {
+        const response = await fetch('/admin/view_passwords', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({ admin_password: password })
+        });
+
+        if (response.ok) {
+            const users = await response.json();
+            renderPasswordList(users);
+        } else {
+            alert("Incorrect Password or Error");
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Network Error");
+    }
+}
+
+function renderPasswordList(users) {
+    const container = document.getElementById('password-list-container');
+    container.style.display = 'block';
+
+    let html = '<table border="1" style="width:100%; border-collapse: collapse;"><tr><th>Airport</th><th>Username</th><th>Password</th></tr>';
+    users.forEach(u => {
+        html += `<tr>
+            <td style="padding: 5px;">${u.airport_code}</td>
+            <td style="padding: 5px;">${u.username}</td>
+            <td style="padding: 5px;">${u.password}</td>
+        </tr>`;
+    });
+    html += '</table>';
+    container.innerHTML = html;
+}
+
+function logout() {
+    localStorage.removeItem('token');
+    window.location.href = '/login';
 }

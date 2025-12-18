@@ -12,6 +12,7 @@ def seed():
         admin_user = models.User(
             username="mwo_admin",
             password_hash=auth.get_password_hash("admin123"), # Admin generic password? Or different?
+            password_encrypted=auth.encrypt_password("admin123"),
             # Prompt implied "give them all a default password" - usually applies to new users.
             # Keeping existing admin logic but ensuring it matches roles.
             role=models.UserRole.MWO_ADMIN,
@@ -46,6 +47,7 @@ def seed():
             new_user = models.User(
                 username=email_username,
                 password_hash=auth.get_password_hash(default_password),
+                password_encrypted=auth.encrypt_password(default_password),
                 role=models.UserRole.REGIONAL,
                 airport_code=code
             )
