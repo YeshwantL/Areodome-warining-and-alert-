@@ -313,7 +313,14 @@ function renderAlerts(alerts) {
             ${replyHtml}
             ${currentUser && currentUser.role === 'mwo_admin' ? `<div style="margin-top: 5px;">
                 <button onclick="finalizeAlert(${alert.id})">Finalize</button>
-                <button onclick="replyToAlert(${alert.id})" style="background-color: #008CBA;">Reply</button>
+                <button onclick="toggleReplyInput(${alert.id})" style="background-color: #008CBA;">Reply</button>
+                <div id="reply-container-${alert.id}" class="reply-input-container" style="display: none;">
+                    <input type="text" id="reply-input-${alert.id}" placeholder="Enter reply...">
+                    <div class="reply-actions">
+                        <button onclick="submitReply(${alert.id})" style="background-color: #28a745;">Send</button>
+                        <button onclick="toggleReplyInput(${alert.id})" style="background-color: #6c757d;">Cancel</button>
+                    </div>
+                </div>
             </div>` : ''}
         `;
         list.appendChild(div);
@@ -542,7 +549,44 @@ function triggerAlarm(airportName) {
 // Duplicate function code removed
 
 
+function toggleReplyInput(id) {
+    const container = document.getElementById(`reply-container-${id}`);
+    const isHidden = container.style.display === 'none';
+    container.style.display = isHidden ? 'flex' : 'none';
+    if (isHidden) {
+        document.getElementById(`reply-input-${id}`).focus();
+        // Add enter key listener
+        document.getElementById(`reply-input-${id}`).onkeypress = function (e) {
+            if (e.key === 'Enter') {
+                submitReply(id);
+            }
+        };
+    }
+}
+
+async function submitReply(id) {
+    const input = document.getElementById(`reply-input-${id}`);
+    const reply = input.value;
+    if (!reply) return;
+
+    try {
+        const response = await fetch(`/alerts/${id}/reply?reply_text=${encodeURIComponent(reply)}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+
+        if (response.ok) {
+            fetchActiveAlerts();
+        } else {
+            alert("Failed to send reply");
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function replyToAlert(id) {
+    // Deprecated for toggleReplyInput but keeping for potential legacy usage or quick fix
     const reply = prompt("Enter Reply:");
     if (!reply) return;
 
