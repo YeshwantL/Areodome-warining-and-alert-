@@ -247,7 +247,8 @@ async function submitAlert(event) {
 async function fetchActiveAlerts() {
     try {
         const response = await fetch('/alerts/active', {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+            cache: 'no-store'
         });
         if (response.ok) {
             const alerts = await response.json();
@@ -371,13 +372,14 @@ async function finalizeAlert(id) {
 let currentChatPartnerId = null;
 
 async function loadChat(partnerId) {
-    if (currentChatPartnerId !== partnerId) {
+    if (currentChatPartnerId !== parseInt(partnerId)) {
         lastChatData = null; // Force re-render for new partner
     }
-    currentChatPartnerId = partnerId;
+    currentChatPartnerId = parseInt(partnerId);
 
     // Initial fetch to show immediate results
-    fetchChatUpdates(partnerId);
+    console.log(`Loading chat with partner: ${currentChatPartnerId}`);
+    fetchChatUpdates(currentChatPartnerId);
 }
 
 async function pollChat() {
@@ -387,9 +389,11 @@ async function pollChat() {
 }
 
 async function fetchChatUpdates(partnerId) {
+    if (!partnerId) return;
     try {
         const response = await fetch(`/chat/${partnerId}`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+            cache: 'no-store'
         });
         if (response.ok) {
             const chats = await response.json();
@@ -440,7 +444,7 @@ async function sendChat(event) {
 
         if (response.ok) {
             input.value = '';
-            lastChatData = null; // Force fetchChatUpdates to re-render immediately
+            lastChatData = null; // Force re-render
             fetchChatUpdates(currentChatPartnerId);
         }
     } catch (e) {
@@ -507,6 +511,7 @@ async function loadAirportList() {
                 // Set default partner to first airport if any
                 if (index === 0) {
                     select.value = a.id;
+                    currentChatPartnerId = parseInt(a.id);
                     loadChat(a.id);
                 }
             });
