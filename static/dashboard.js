@@ -12,6 +12,7 @@ const airportNames = {}; // Cache for code -> name
 const openReplyBoxes = new Set(); // Track open reply box IDs
 const replyInputValues = {}; // Store unsent reply text
 let lastAlertsData = null; // To avoid unnecessary re-renders
+let lastChatData = null; // To avoid unnecessary chat re-renders
 
 
 // Init
@@ -71,6 +72,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Polling
     setInterval(fetchActiveAlerts, 2000); // 2s polling for faster sound response
+    setInterval(pollChat, 3000); // 3s polling for chat messages
+
     if (currentUser.role === 'mwo_admin') {
         // Stop alarm on any click
         document.addEventListener('click', (e) => {
@@ -368,19 +371,35 @@ async function finalizeAlert(id) {
 let currentChatPartnerId = null;
 
 async function loadChat(partnerId) {
+    if (currentChatPartnerId !== partnerId) {
+        lastChatData = null; // Force re-render for new partner
+    }
     currentChatPartnerId = partnerId;
-    const chatBox = document.getElementById('chat-box');
-    chatBox.innerHTML = '<p>Loading chat...</p>';
 
+    // Initial fetch to show immediate results
+    fetchChatUpdates(partnerId);
+}
+
+async function pollChat() {
+    if (currentChatPartnerId) {
+        fetchChatUpdates(currentChatPartnerId);
+    }
+}
+
+async function fetchChatUpdates(partnerId) {
     try {
         const response = await fetch(`/chat/${partnerId}`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
         });
         if (response.ok) {
             const chats = await response.json();
-            renderChat(chats);
-        } else {
-            chatBox.innerHTML = '<p>Error loading chat.</p>';
+
+            // Optimization: Only re-render if data has changed
+            const currentChatDataStr = JSON.stringify(chats);
+            if (currentChatDataStr !== lastChatData) {
+                lastChatData = currentChatDataStr;
+                renderChat(chats);
+            }
         }
     } catch (e) {
         console.error(e);
@@ -421,7 +440,8 @@ async function sendChat(event) {
 
         if (response.ok) {
             input.value = '';
-            loadChat(currentChatPartnerId);
+            lastChatData = null; // Force fetchChatUpdates to re-render immediately
+            fetchChatUpdates(currentChatPartnerId);
         }
     } catch (e) {
         console.error(e);
