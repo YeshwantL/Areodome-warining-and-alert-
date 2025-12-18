@@ -9,6 +9,9 @@ let isAlarmPlaying = false;
 let lastAlertId = 0;
 const playedReplies = new Set();
 const airportNames = {}; // Cache for code -> name
+const openReplyBoxes = new Set(); // Track open reply box IDs
+const replyInputValues = {}; // Store unsent reply text
+let lastAlertsData = null; // To avoid unnecessary re-renders
 
 
 // Init
@@ -69,7 +72,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Polling
     setInterval(fetchActiveAlerts, 2000); // 2s polling for faster sound response
     if (currentUser.role === 'mwo_admin') {
-        // Poll for new alerts to play sound
+        // Stop alarm on any click
+        document.addEventListener('click', (e) => {
+            if (isAlarmPlaying) {
+                // If the click was not on the stop button itself (to avoid redundant calls, although stopAlarm is safe)
+                if (e.target.id !== 'stop-alarm-btn') {
+                    stopAlarm();
+                }
+            }
+        });
     }
 });
 
@@ -237,7 +248,13 @@ async function fetchActiveAlerts() {
         });
         if (response.ok) {
             const alerts = await response.json();
-            renderAlerts(alerts);
+
+            // Optimization: Only re-render if data has changed
+            const currentDataStr = JSON.stringify(alerts);
+            if (currentDataStr !== lastAlertsData) {
+                lastAlertsData = currentDataStr;
+                renderAlerts(alerts);
+            }
 
             // Audio Trigger for Admin
             if (currentUser && currentUser.role === 'mwo_admin' && audioEnabled) {
@@ -314,8 +331,10 @@ function renderAlerts(alerts) {
             ${currentUser && currentUser.role === 'mwo_admin' ? `<div style="margin-top: 5px;">
                 <button onclick="finalizeAlert(${alert.id})">Finalize</button>
                 <button onclick="toggleReplyInput(${alert.id})" style="background-color: #008CBA;">Reply</button>
-                <div id="reply-container-${alert.id}" class="reply-input-container" style="display: none;">
-                    <input type="text" id="reply-input-${alert.id}" placeholder="Enter reply...">
+                <div id="reply-container-${alert.id}" class="reply-input-container" style="display: ${openReplyBoxes.has(alert.id) ? 'flex' : 'none'};">
+                    <input type="text" id="reply-input-${alert.id}" placeholder="Enter reply..." 
+                        value="${replyInputValues[alert.id] || ''}"
+                        oninput="saveReplyText(${alert.id}, this.value)">
                     <div class="reply-actions">
                         <button onclick="submitReply(${alert.id})" style="background-color: #28a745;">Send</button>
                         <button onclick="toggleReplyInput(${alert.id})" style="background-color: #6c757d;">Cancel</button>
@@ -552,16 +571,26 @@ function triggerAlarm(airportName) {
 function toggleReplyInput(id) {
     const container = document.getElementById(`reply-container-${id}`);
     const isHidden = container.style.display === 'none';
-    container.style.display = isHidden ? 'flex' : 'none';
+
     if (isHidden) {
-        document.getElementById(`reply-input-${id}`).focus();
+        container.style.display = 'flex';
+        openReplyBoxes.add(id);
+        const input = document.getElementById(`reply-input-${id}`);
+        input.focus();
         // Add enter key listener
-        document.getElementById(`reply-input-${id}`).onkeypress = function (e) {
+        input.onkeypress = function (e) {
             if (e.key === 'Enter') {
                 submitReply(id);
             }
         };
+    } else {
+        container.style.display = 'none';
+        openReplyBoxes.delete(id);
     }
+}
+
+function saveReplyText(id, value) {
+    replyInputValues[id] = value;
 }
 
 async function submitReply(id) {
@@ -576,6 +605,12 @@ async function submitReply(id) {
         });
 
         if (response.ok) {
+            // Success: clear state for this box
+            openReplyBoxes.delete(id);
+            delete replyInputValues[id];
+
+            // Force re-render by clearing lastAlertsData
+            lastAlertsData = null;
             fetchActiveAlerts();
         } else {
             alert("Failed to send reply");
