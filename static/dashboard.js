@@ -576,9 +576,12 @@ function speak(text) {
         utterance.rate = 0.9;   // Slightly slower for better clarity
         utterance.pitch = 1.0;
 
-        // Try to find a clear English voice if available
+        // Try to find a clear Indian English voice first, then fall back to US/GB
         const voices = window.speechSynthesis.getVoices();
-        const preferredVoice = voices.find(v => v.lang.includes('en-US') || v.lang.includes('en-GB'));
+        let preferredVoice = voices.find(v => v.lang === 'en-IN' || v.name.includes('India'));
+        if (!preferredVoice) {
+            preferredVoice = voices.find(v => v.lang.includes('en-US') || v.lang.includes('en-GB'));
+        }
 
         if (preferredVoice) utterance.voice = preferredVoice;
 
