@@ -13,6 +13,7 @@ const openReplyBoxes = new Set(); // Track open reply box IDs
 const replyInputValues = {}; // Store unsent reply text
 let lastAlertsData = null; // To avoid unnecessary re-renders
 let lastChatData = null; // To avoid unnecessary chat re-renders
+let lastChatMsgId = 0; // Track last message to notify only once
 
 
 // Init
@@ -374,6 +375,7 @@ let currentChatPartnerId = null;
 async function loadChat(partnerId) {
     if (currentChatPartnerId !== parseInt(partnerId)) {
         lastChatData = null; // Force re-render for new partner
+        lastChatMsgId = 0;   // Reset message tracking
     }
     currentChatPartnerId = parseInt(partnerId);
 
@@ -403,6 +405,21 @@ async function fetchChatUpdates(partnerId) {
             if (currentChatDataStr !== lastChatData) {
                 lastChatData = currentChatDataStr;
                 renderChat(chats);
+
+                // Notification Sound Check
+                if (chats.length > 0) {
+                    const latestMsg = chats[chats.length - 1];
+                    // If it's a new message (ID higher than last seen) 
+                    // and we weren't just loading the chat for the first time (lastChatMsgId > 0)
+                    // and it's NOT from us
+                    if (lastChatMsgId > 0 && latestMsg.id > lastChatMsgId && latestMsg.sender_id !== currentUser.id) {
+                        if (audioEnabled) {
+                            speak("New message received");
+                        }
+                    }
+                    // Update last seen ID
+                    lastChatMsgId = latestMsg.id;
+                }
             }
         }
     } catch (e) {
