@@ -413,9 +413,7 @@ async function fetchChatUpdates(partnerId) {
                     // and we weren't just loading the chat for the first time (lastChatMsgId > 0)
                     // and it's NOT from us
                     if (lastChatMsgId > 0 && latestMsg.id > lastChatMsgId && latestMsg.sender_id !== currentUser.id) {
-                        if (audioEnabled) {
-                            speak("New message received");
-                        }
+                        playNotificationPing();
                     }
                     // Update last seen ID
                     lastChatMsgId = latestMsg.id;
@@ -565,6 +563,34 @@ function speak(text) {
         if (preferredVoice) utterance.voice = preferredVoice;
 
         window.speechSynthesis.speak(utterance);
+    }
+}
+
+function playNotificationPing() {
+    if (!audioEnabled) return;
+
+    try {
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, audioContext.currentTime); // A5
+
+        gain.gain.setValueAtTime(0, audioContext.currentTime);
+        gain.gain.linearRampToValueAtTime(0.2, audioContext.currentTime + 0.02);
+        gain.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.2);
+
+        osc.connect(gain);
+        gain.connect(audioContext.destination);
+
+        osc.start();
+        osc.stop(audioContext.currentTime + 0.2);
+    } catch (e) {
+        console.error("Audio error", e);
     }
 }
 
