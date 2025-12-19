@@ -51,6 +51,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Initialize Preview and Listeners
         initPreview();
 
+        // Pre-fill airport code from user profile
+        if (currentUser.role === 'regional_airport' && currentUser.airport_code) {
+            const airportInput = document.querySelector('input[name="airport_code"]');
+            if (airportInput) airportInput.value = currentUser.airport_code;
+        }
+
     } else if (currentUser.role === 'mwo_admin') {
         document.getElementById('admin-controls').style.display = 'block';
         if (document.getElementById('history-section')) {
