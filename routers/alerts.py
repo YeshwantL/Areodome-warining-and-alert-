@@ -43,18 +43,8 @@ async def get_active_alerts(
     
     if current_user.role == models.UserRole.REGIONAL:
         query = query.filter(models.Alert.sender_id == current_user.id)
-    
-    # Order by newest first
-    alerts = query.order_by(models.Alert.created_at.desc()).all()
-    
-    for a in alerts:
-        # Avoid setting attribute directly if it's not on the model, 
-        # but for Pydantic/FastAPI it's usually okay. 
-        # Better: use a helper or dict for transport if needed.
-        # But let's try to use the relationship safely.
-        setattr(a, 'sender_airport_code', a.sender.airport_code if a.sender else "N/A")
         
-    return alerts
+    return query.all()
 
 @router.post("/{alert_id}/finalize", response_model=schemas.Alert)
 async def finalize_alert(
@@ -108,7 +98,7 @@ async def get_history(
     query = db.query(models.Alert)
     
     # 1. Join with User to allow filtering by airport_code
-    query = query.outerjoin(models.User, models.Alert.sender_id == models.User.id)
+    query = query.join(models.User, models.Alert.sender_id == models.User.id)
     
     # 2. Filter by Date or Month
     if date:
@@ -151,8 +141,7 @@ async def get_history(
         if airport_code:
              query = query.filter(models.User.airport_code == airport_code)
 
-    alerts = query.order_by(models.Alert.created_at.desc()).all()
-    for a in alerts:
-        setattr(a, 'sender_airport_code', a.sender.airport_code if a.sender else "N/A")
-        
-    return alerts
+    # Order by newest first
+    query = query.order_by(models.Alert.created_at.desc())
+    
+    return query.all()

@@ -40,7 +40,6 @@ class AlertCreate(AlertBase):
 class Alert(AlertBase):
     id: int
     sender_id: int
-    sender_airport_code: Optional[str] = None
     status: AlertStatus
     created_at: datetime
     finalized_at: Optional[datetime] = None

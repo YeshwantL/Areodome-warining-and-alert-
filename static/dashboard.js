@@ -51,12 +51,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Initialize Preview and Listeners
         initPreview();
 
-        // Pre-fill airport code from user profile
-        if (currentUser.airport_code) {
-            const airportInput = document.querySelector('input[name="airport_code"]');
-            if (airportInput) airportInput.value = currentUser.airport_code;
-        }
-
     } else if (currentUser.role === 'mwo_admin') {
         document.getElementById('admin-controls').style.display = 'block';
         if (document.getElementById('history-section')) {
@@ -276,7 +270,7 @@ async function fetchActiveAlerts() {
                 // If we have any new alerts, play the warning sound
                 if (newAlerts.length > 0) {
                     const latest = newAlerts[0];
-                    const airportCode = latest.sender_airport_code || (latest.content && latest.content.airport) || "Aerodrome";
+                    const airportCode = latest.content.airport || "Aerodrome";
                     const airportDisplayName = airportNames[airportCode] || airportCode;
                     triggerAlarm(airportDisplayName);
                 }
@@ -582,12 +576,9 @@ function speak(text) {
         utterance.rate = 0.9;   // Slightly slower for better clarity
         utterance.pitch = 1.0;
 
-        // Try to find a clear Indian English voice first, then fall back to US/GB
+        // Try to find a clear English voice if available
         const voices = window.speechSynthesis.getVoices();
-        let preferredVoice = voices.find(v => v.lang === 'en-IN' || v.name.includes('India'));
-        if (!preferredVoice) {
-            preferredVoice = voices.find(v => v.lang.includes('en-US') || v.lang.includes('en-GB'));
-        }
+        const preferredVoice = voices.find(v => v.lang.includes('en-US') || v.lang.includes('en-GB'));
 
         if (preferredVoice) utterance.voice = preferredVoice;
 
