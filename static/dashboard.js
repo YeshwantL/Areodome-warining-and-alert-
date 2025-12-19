@@ -14,6 +14,7 @@ const replyInputValues = {}; // Store unsent reply text
 let lastAlertsData = null; // To avoid unnecessary re-renders
 let lastChatData = null; // To avoid unnecessary chat re-renders
 let lastChatMsgId = 0; // Track last message to notify only once
+let globalLastMsgId = 0; // Track overall latest received message ID
 
 
 // Init
@@ -74,6 +75,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Polling
     setInterval(fetchActiveAlerts, 2000); // 2s polling for faster sound response
     setInterval(pollChat, 3000); // 3s polling for chat messages
+    setInterval(checkGlobalNotifications, 4000); // 4s polling for global notifications
 
     if (currentUser.role === 'mwo_admin') {
         // Stop alarm on any click
@@ -406,22 +408,38 @@ async function fetchChatUpdates(partnerId) {
                 lastChatData = currentChatDataStr;
                 renderChat(chats);
 
-                // Notification Sound Check
+                // Keep local tracking for consistency, but notification is now global
                 if (chats.length > 0) {
-                    const latestMsg = chats[chats.length - 1];
-                    // If it's a new message (ID higher than last seen) 
-                    // and we weren't just loading the chat for the first time (lastChatMsgId > 0)
-                    // and it's NOT from us
-                    if (lastChatMsgId > 0 && latestMsg.id > lastChatMsgId && latestMsg.sender_id !== currentUser.id) {
-                        playNotificationPing();
-                    }
-                    // Update last seen ID
-                    lastChatMsgId = latestMsg.id;
+                    lastChatMsgId = chats[chats.length - 1].id;
                 }
             }
         }
     } catch (e) {
         console.error(e);
+    }
+}
+
+async function checkGlobalNotifications() {
+    try {
+        const response = await fetch('/chat/received/latest', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+            cache: 'no-store'
+        });
+        if (response.ok) {
+            const latestChat = await response.json();
+
+            // If it's a new message (ID higher than last seen)
+            // and NOT the first load (globalLastMsgId > 0)
+            if (globalLastMsgId > 0 && latestChat.id > globalLastMsgId) {
+                playNotificationPing();
+            }
+
+            // Update last seen ID
+            globalLastMsgId = latestChat.id;
+        }
+    } catch (e) {
+        // Handle 404 (no messages yet) or other issues
+        if (e.status !== 404) console.debug("Global notification check:", e);
     }
 }
 

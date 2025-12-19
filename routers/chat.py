@@ -39,6 +39,21 @@ async def send_message(
     db.refresh(new_chat)
     return new_chat
 
+@router.get("/received/latest", response_model=schemas.Chat)
+async def get_latest_received_chat(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_active_user)
+):
+    chat = db.query(models.Chat).filter(
+        models.Chat.receiver_id == current_user.id
+    ).order_by(models.Chat.timestamp.desc()).first()
+    
+    if not chat:
+        # Return an empty-like chat or handle 404. Let's return 404 for clarity.
+        raise HTTPException(status_code=404, detail="No messages received yet")
+    
+    return chat
+
 @router.get("/{partner_id}", response_model=List[schemas.Chat])
 async def get_chat_history(
     partner_id: int,
