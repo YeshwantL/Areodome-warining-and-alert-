@@ -51,6 +51,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Initialize Preview and Listeners
         initPreview();
 
+        // Pre-fill airport code from user profile
+        if (currentUser.airport_code) {
+            const airportInput = document.querySelector('input[name="airport_code"]');
+            if (airportInput) airportInput.value = currentUser.airport_code;
+        }
+
     } else if (currentUser.role === 'mwo_admin') {
         document.getElementById('admin-controls').style.display = 'block';
         if (document.getElementById('history-section')) {
@@ -270,7 +276,7 @@ async function fetchActiveAlerts() {
                 // If we have any new alerts, play the warning sound
                 if (newAlerts.length > 0) {
                     const latest = newAlerts[0];
-                    const airportCode = latest.content.airport || "Aerodrome";
+                    const airportCode = latest.sender_airport_code || (latest.content && latest.content.airport) || "Aerodrome";
                     const airportDisplayName = airportNames[airportCode] || airportCode;
                     triggerAlarm(airportDisplayName);
                 }

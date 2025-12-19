@@ -39,7 +39,18 @@ async def get_active_alerts(
     # Requirement: "Regional Airport: Cannot see other airports."
     # So Regional sees own active alerts. Admin sees all.
     
-    query = db.query(models.Alert).filter(models.Alert.status == models.AlertStatus.ACTIVE)
+    query = db.query(
+        models.Alert.id,
+        models.Alert.sender_id,
+        models.Alert.type,
+        models.Alert.content,
+        models.Alert.status,
+        models.Alert.created_at,
+        models.Alert.finalized_at,
+        models.Alert.final_warning_text,
+        models.Alert.admin_reply,
+        models.User.airport_code.label("sender_airport_code")
+    ).join(models.User, models.Alert.sender_id == models.User.id).filter(models.Alert.status == models.AlertStatus.ACTIVE)
     
     if current_user.role == models.UserRole.REGIONAL:
         query = query.filter(models.Alert.sender_id == current_user.id)
@@ -141,7 +152,18 @@ async def get_history(
         if airport_code:
              query = query.filter(models.User.airport_code == airport_code)
 
-    # Order by newest first
-    query = query.order_by(models.Alert.created_at.desc())
+    # Can use .with_entities to select specific columns and join result
+    query = query.with_entities(
+        models.Alert.id,
+        models.Alert.sender_id,
+        models.Alert.type,
+        models.Alert.content,
+        models.Alert.status,
+        models.Alert.created_at,
+        models.Alert.finalized_at,
+        models.Alert.final_warning_text,
+        models.Alert.admin_reply,
+        models.User.airport_code.label("sender_airport_code")
+    )
     
     return query.all()
