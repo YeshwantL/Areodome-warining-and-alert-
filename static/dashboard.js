@@ -479,6 +479,7 @@ async function sendChat(event) {
             input.value = '';
             lastChatData = null; // Force re-render
             fetchChatUpdates(currentChatPartnerId);
+            playNotificationPing();
         }
     } catch (e) {
         console.error(e);
