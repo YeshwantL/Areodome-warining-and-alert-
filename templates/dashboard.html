@@ -7,8 +7,8 @@
     <div class="dashboard-header">
         <h2 id="user-role-display">Loading...</h2>
         <div style="display: flex; gap: 10px; align-items: center;">
+            <button onclick="toggleAudio()" id="audio-btn" style="background-color: #0055a5;">Enable Audio</button>
             <div id="admin-controls" style="display: none; align-items: center; gap: 10px;">
-                <button onclick="toggleAudio()" id="audio-btn">Enable Audio</button>
                 <button onclick="stopAlarm()" id="stop-alarm-btn"
                     style="display: none; background-color: #dc3545; animation: pulse 1s infinite;">STOP ALARM</button>
                 <button onclick="toggleAdminPanel()" id="manage-airports-btn" style="background-color: #2c3e50;">Manage
@@ -160,11 +160,28 @@
             <!-- Chat Section -->
             <div class="card" style="margin-top: 2rem;">
                 <h3>Communication</h3>
-                <div id="chat-partner-select" style="display: none;">
-                    <label>Select Airport:</label>
-                    <select id="chat-partner" onchange="loadChat(this.value)">
+                <div id="chat-partner-select" style="display: none; margin-bottom: 15px;">
+                    <div id="chat-notification-banner"
+                        style="display: none; background: #e3f2fd; border: 1px solid #2196f3; padding: 10px; border-radius: 4px; margin-bottom: 10px; align-items: center; gap: 10px;">
+                        <span style="font-size: 1.2em;">💬</span>
+                        <div style="flex: 1;">
+                            <div id="chat-notif-text" style="font-weight: bold; font-size: 0.9em;">New message from VASD
+                            </div>
+                            <div id="chat-notif-msg"
+                                style="font-size: 0.85em; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;">
+                                Hello admin...</div>
+                        </div>
+                        <button id="chat-notif-btn"
+                            style="background: #2196f3; padding: 4px 8px; font-size: 0.8em; white-space: nowrap;">View
+                            Chat</button>
+                    </div>
+                    <input type="text" id="airport-search" placeholder="Select Airport..."
+                        style="width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #2c3e50; border-radius: 4px; box-sizing: border-box; font-size: 0.95em; font-weight: 500; background: #f8f9fa;"
+                        onkeyup="filterAirports()">
+                    <div id="airport-chat-list"
+                        style="display: flex; flex-direction: column; gap: 5px; max-height: 250px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 5px; background: #fff;">
                         <!-- Populated by JS -->
-                    </select>
+                    </div>
                 </div>
                 <div id="chat-box" class="chat-box">
                     <!-- Messages go here -->

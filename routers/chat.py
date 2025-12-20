@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
-from typing import List
+from typing import List, Optional
 import database, models, schemas, auth
 
 router = APIRouter(
@@ -39,7 +39,7 @@ async def send_message(
     db.refresh(new_chat)
     return new_chat
 
-@router.get("/received/latest", response_model=schemas.Chat)
+@router.get("/received/latest", response_model=Optional[schemas.Chat])
 async def get_latest_received_chat(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_active_user)
@@ -47,10 +47,6 @@ async def get_latest_received_chat(
     chat = db.query(models.Chat).filter(
         models.Chat.receiver_id == current_user.id
     ).order_by(models.Chat.timestamp.desc()).first()
-    
-    if not chat:
-        # Return an empty-like chat or handle 404. Let's return 404 for clarity.
-        raise HTTPException(status_code=404, detail="No messages received yet")
     
     return chat
 

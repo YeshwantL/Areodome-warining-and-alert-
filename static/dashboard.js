@@ -15,6 +15,7 @@ let lastAlertsData = null; // To avoid unnecessary re-renders
 let lastChatData = null; // To avoid unnecessary chat re-renders
 let lastChatMsgId = 0; // Track last message to notify only once
 let globalLastMsgId = 0; // Track overall latest received message ID
+const userMapping = {}; // Map ID -> { code, name }
 
 
 // Init
@@ -381,11 +382,30 @@ async function finalizeAlert(id) {
 let currentChatPartnerId = null;
 
 async function loadChat(partnerId) {
-    if (currentChatPartnerId !== parseInt(partnerId)) {
+    const pid = parseInt(partnerId);
+
+    // Update visual selection in sidebar
+    const allItems = document.querySelectorAll('.airport-list-item');
+    allItems.forEach(item => {
+        item.style.backgroundColor = 'transparent';
+        item.style.borderLeft = 'none';
+        item.style.fontWeight = 'normal';
+    });
+
+    const activeItem = document.getElementById(`airport-item-${pid}`);
+    if (activeItem) {
+        activeItem.style.backgroundColor = '#f0f0f0';
+        activeItem.style.fontWeight = 'bold';
+        activeItem.classList.remove('new-message'); // Clear notification
+        const badge = activeItem.querySelector('.notif-badge');
+        if (badge) badge.remove();
+    }
+
+    if (currentChatPartnerId !== pid) {
         lastChatData = null; // Force re-render for new partner
         lastChatMsgId = 0;   // Reset message tracking
     }
-    currentChatPartnerId = parseInt(partnerId);
+    currentChatPartnerId = pid;
 
     // Initial fetch to show immediate results
     console.log(`Loading chat with partner: ${currentChatPartnerId}`);
@@ -433,11 +453,17 @@ async function checkGlobalNotifications() {
         });
         if (response.ok) {
             const latestChat = await response.json();
+            if (!latestChat) return;
 
             // If it's a new message (ID higher than last seen)
             // and NOT the first load (globalLastMsgId > 0)
             if (globalLastMsgId > 0 && latestChat.id > globalLastMsgId) {
                 playNotificationPing();
+
+                // Show notification banner for Admin
+                if (currentUser && currentUser.role === 'mwo_admin') {
+                    showChatNotification(latestChat);
+                }
             }
 
             // Update last seen ID
@@ -449,9 +475,33 @@ async function checkGlobalNotifications() {
     }
 }
 
+function showChatNotification(chat) {
+    // Highlight the airport in the sidebar
+    const airportItem = document.getElementById(`airport-item-${chat.sender_id}`);
+    if (airportItem) {
+        airportItem.classList.add('new-message');
+        airportItem.style.backgroundColor = '#e3f2fd';
+        airportItem.style.borderLeft = '4px solid #2196f3';
+
+        // Add "New!" badge if not there
+        if (!airportItem.querySelector('.notif-badge')) {
+            const badge = document.createElement('span');
+            badge.className = 'notif-badge';
+            badge.innerText = 'New!';
+            badge.style.cssText = 'background: #2196f3; color: white; font-size: 0.7em; padding: 2px 5px; border-radius: 10px; margin-left: auto;';
+            airportItem.appendChild(badge);
+        }
+    }
+}
+
 function renderChat(chats) {
     const chatBox = document.getElementById('chat-box');
     chatBox.innerHTML = '';
+
+    if (!currentChatPartnerId) {
+        chatBox.innerHTML = '<p style="text-align: center; color: #7f8c8d; margin-top: 50px;">Select an airport from the list to start chatting.</p>';
+        return;
+    }
     chats.forEach(chat => {
         const div = document.createElement('div');
         const isMe = chat.sender_id === currentUser.id;
@@ -525,7 +575,9 @@ async function fetchAirportNames() {
             const airports = await response.json();
             airports.forEach(a => {
                 airportNames[a.code] = a.name;
+                userMapping[a.id] = { code: a.code, name: a.name };
             });
+            // Also add Admin to mapping if possible, but mainly for airports
         }
     } catch (e) {
         console.error("Failed to load airport names", e);
@@ -533,8 +585,9 @@ async function fetchAirportNames() {
 }
 
 async function loadAirportList() {
-    const select = document.getElementById('chat-partner');
-    select.innerHTML = '<option value="">Select Airport...</option>';
+    const container = document.getElementById('airport-chat-list');
+    if (!container) return;
+    container.innerHTML = '';
 
     try {
         const response = await fetch('/admin/airports', {
@@ -543,21 +596,38 @@ async function loadAirportList() {
         if (response.ok) {
             const airports = await response.json();
             airports.forEach((a, index) => {
-                const option = document.createElement('option');
-                option.value = a.id;
-                option.innerText = `${a.code} - ${a.name}`;
-                select.appendChild(option);
+                const item = document.createElement('div');
+                item.id = `airport-item-${a.id}`;
+                item.className = 'airport-list-item';
+                item.style.cssText = 'padding: 8px 12px; cursor: pointer; border-radius: 4px; display: flex; align-items: center; transition: background 0.2s; font-size: 0.9em;';
+                item.innerText = `${a.code} - ${a.name}`;
 
-                // Set default partner to first airport if any
-                if (index === 0) {
-                    select.value = a.id;
-                    currentChatPartnerId = parseInt(a.id);
-                    loadChat(a.id);
-                }
+                item.onclick = () => loadChat(a.id);
+
+                container.appendChild(item);
             });
+
+            // If nothing selected, show the empty state in chat box
+            if (!currentChatPartnerId) {
+                renderChat([]);
+            }
         }
     } catch (e) {
         console.error("Failed to load airport list", e);
+    }
+}
+
+// Set initial audio button state
+const audioBtn = document.getElementById('audio-btn');
+if (audioBtn) {
+    audioBtn.innerText = audioEnabled ? "Disable Audio" : "Enable Audio";
+    audioBtn.style.backgroundColor = audioEnabled ? "#dc3545" : "#0055a5";
+}
+
+if (currentUser && currentUser.role === 'mwo_admin') {
+    const adminControls = document.getElementById('admin-controls');
+    if (adminControls) {
+        adminControls.style.display = 'flex';
     }
 }
 
@@ -914,4 +984,18 @@ function renderPasswordList(users) {
 function logout() {
     localStorage.removeItem('token');
     window.location.href = '/login';
+}
+
+function filterAirports() {
+    const term = document.getElementById('airport-search').value.toLowerCase();
+    const items = document.querySelectorAll('.airport-list-item');
+
+    items.forEach(item => {
+        const text = item.innerText.toLowerCase();
+        if (text.includes(term)) {
+            item.style.display = 'flex';
+        } else {
+            item.style.display = 'none';
+        }
+    });
 }
