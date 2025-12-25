@@ -25,6 +25,19 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 async def read_users_me(current_user: models.User = Depends(auth.get_current_active_user)):
     return current_user
 
+@router.get("/admin-info")
+def get_admin_info(db: Session = Depends(database.get_db), current_user: models.User = Depends(auth.get_current_active_user)):
+    # Find the MWO Admin (Assuming there is at least one, taking the first generic one or any)
+    admin = db.query(models.User).filter(models.User.role == models.UserRole.MWO_ADMIN).first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="Admin not found")
+    
+    return {
+        "id": admin.id,
+        "username": admin.username,
+        "airport_code": admin.airport_code
+    }
+
 @router.post("/change-password")
 async def change_password(
     password_data: schemas.UserPasswordChange,

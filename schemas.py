@@ -58,7 +58,7 @@ class ChatCreate(ChatBase):
 
 class Chat(ChatBase):
     id: int
-    sender_id: int
+    sender_id: Optional[int] = None
     timestamp: datetime
 
     class Config:

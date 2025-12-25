@@ -195,6 +195,24 @@
 
         <!-- Right Column: Active Alerts & History -->
         <div class="right-panel">
+            <!-- Wind Forecast Section -->
+            <div class="card" id="wind-forecast-section" style="margin-bottom: 2rem;">
+                <h3>Wind Forecast</h3>
+
+                <div id="admin-forecast-controls" style="display: none; margin-bottom: 15px;">
+                    <select id="forecast-airport-select"
+                        style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;"
+                        onchange="fetchPrediction(this.value)">
+                        <option value="">Select Airport...</option>
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+
+                <div id="forecast-display">
+                    <p style="color: #666; font-style: italic;">Loading forecast...</p>
+                </div>
+            </div>
+
             <div class="card">
                 <h3>Active Alerts</h3>
                 <div id="active-alerts-list">

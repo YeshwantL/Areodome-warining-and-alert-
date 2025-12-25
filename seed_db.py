@@ -5,21 +5,33 @@ def seed():
     models.Base.metadata.create_all(bind=database.engine)
     db = database.SessionLocal()
     
-    # 1. MWO Admin
-    admin = db.query(models.User).filter(models.User.username == "mwo_admin").first()
-    if not admin:
-        print("Creating MWO Admin...")
-        admin_user = models.User(
+    # 1. MWO Admin (Generic)
+    # User requested not to remove mwo_admin.
+    mwo_admin = db.query(models.User).filter(models.User.username == "mwo_admin").first()
+    if not mwo_admin:
+        print("Creating MWO Admin (Generic)...")
+        mwo_admin = models.User(
             username="mwo_admin",
-            password_hash=auth.get_password_hash("admin123"), # Admin generic password? Or different?
+            password_hash=auth.get_password_hash("admin123"),
             password_encrypted=auth.encrypt_password("admin123"),
-            # Prompt implied "give them all a default password" - usually applies to new users.
-            # Keeping existing admin logic but ensuring it matches roles.
             role=models.UserRole.MWO_ADMIN,
             airport_code="VABB_MWO"
         )
-        db.add(admin_user)
+        db.add(mwo_admin)
 
+    # 1. MWO Admin (Generic)
+    mwo_admin = db.query(models.User).filter(models.User.username == "mwo_admin").first()
+    if not mwo_admin:
+        print("Creating MWO Admin (Generic)...")
+        mwo_admin = models.User(
+            username="mwo_admin",
+            password_hash=auth.get_password_hash("admin123"),
+            password_encrypted=auth.encrypt_password("admin123"),
+            role=models.UserRole.MWO_ADMIN,
+            airport_code="VABB_MWO"
+        )
+        db.add(mwo_admin)
+    
     # 2. Regional Airports List
     # Format: Code, Name
     airports = [
@@ -34,7 +46,24 @@ def seed():
         ("VOLT", "LATUR AIRPORT"),
         ("VOGA", "MOPA AIRPORT"),
         ("VANM", "NAVI MUMBAI AIRPORT"),
+        ("VABB", "MUMBAI AIRPORT"),
     ]
+
+    # Explicitly Demote/Fix VABB if it was Admin
+    vabb_admin = db.query(models.User).filter(models.User.username == "vabb@gmail.com", models.User.role == models.UserRole.MWO_ADMIN).first()
+    if vabb_admin:
+        print("Demoting VABB from Admin to Regional...")
+        vabb_admin.role = models.UserRole.REGIONAL
+        vabb_admin.full_name = "MUMBAI AIRPORT" # Revert name from "MUMBAI AIRPORT / MWO"
+
+    # Cleanup erroneously created users if any
+    garbage_emails = ["vanew@gmail.com"]
+    for g_email in garbage_emails:
+        g_user = db.query(models.User).filter(models.User.username == g_email).first()
+        if g_user:
+            print(f"Removing garbage user: {g_email}")
+            db.delete(g_user)
+            db.commit()
 
     default_password = "Airport@123"
 

@@ -35,5 +35,13 @@ window.fetch = async function (url, options = {}) {
         options.headers = options.headers || {};
         options.headers['Authorization'] = 'Bearer ' + token;
     }
-    return originalFetch(url, options);
+    const response = await originalFetch(url, options);
+    if (response.status === 401 && !url.includes('/token')) {
+        // Token expired or invalid
+        localStorage.removeItem('token');
+        if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+        }
+    }
+    return response;
 };

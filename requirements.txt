@@ -8,3 +8,7 @@ apscheduler
 python-multipart
 jinja2
 python-dotenv
+requests
+pandas
+numpy
+scikit-learn

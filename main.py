@@ -3,25 +3,28 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 import models, database, tasks
-from routers import auth, alerts, chat, pages, admin
+from routers import auth, alerts, chat, pages, admin, prediction
 
 models.Base.metadata.create_all(bind=database.engine)
 
-app = FastAPI(title="Aerodrome Warning Alert System")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    tasks.scheduler.start()
+    yield
+    # Shutdown
+    tasks.scheduler.shutdown()
+
+app = FastAPI(title="Aerodrome Warning Alert System", lifespan=lifespan)
 
 app.include_router(auth.router, prefix="/auth")
 app.include_router(alerts.router)
 app.include_router(chat.router)
 app.include_router(pages.router)
 app.include_router(admin.router)
-
-@app.on_event("startup")
-def start_scheduler():
-    tasks.scheduler.start()
-
-@app.on_event("shutdown")
-def shutdown_scheduler():
-    tasks.scheduler.shutdown()
+app.include_router(prediction.router)
 
 import os
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")

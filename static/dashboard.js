@@ -36,7 +36,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (meRes.ok) {
         currentUser = await meRes.json();
     } else {
-        currentUser = { username: payload.sub, role: payload.role, id: payload.id || 0 }; // Fallback
+        if (meRes.status === 401) {
+            logout();
+            return;
+        }
+        currentUser = { username: payload.sub, role: payload.role, id: payload.id || 0 }; // Fallback for other errors
     }
 
     const displayName = currentUser.full_name || currentUser.username;
@@ -45,9 +49,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     // UI Setup based on role
     if (currentUser.role === 'regional_airport') {
         document.getElementById('create-alert-section').style.display = 'block';
-        // Load chat with Admin (ID 1 usually, but we need to fetch partner ID or just send to Admin)
-        // For now, let's assume Admin ID is 1.
-        loadChat(1);
+        // Fetch Admin Info to chat
+        const adminRes = await fetch('/auth/admin-info', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (adminRes.ok) {
+            const adminData = await adminRes.json();
+            // Special: If this is Mumbai Airport, hide the communication box entirely
+            if (currentUser.airport_code === 'VABB') {
+                const communicationCard = document.querySelector('.left-panel .card:last-child');
+                if (communicationCard && communicationCard.querySelector('h3').innerText === 'Communication') {
+                    communicationCard.style.display = 'none';
+                }
+            } else {
+                loadChat(adminData.id);
+            }
+        } else {
+            console.error("Could not find Admin for chat");
+            // Fallback? Or just log error.
+        }
 
         // Initialize Preview and Listeners
         initPreview();
@@ -56,6 +76,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (currentUser.role === 'regional_airport' && currentUser.airport_code) {
             const airportInput = document.querySelector('input[name="airport_code"]');
             if (airportInput) airportInput.value = currentUser.airport_code;
+
+            // Auto-load prediction
+            fetchPrediction(currentUser.airport_code);
         }
 
     } else if (currentUser.role === 'mwo_admin') {
@@ -74,6 +97,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Load names for crystal clear audio
         fetchAirportNames();
+
+        // Init Forecast Selector
+        loadForecastAirports();
+
+        // Fix: Ensure we show the controls
+        const forecastControls = document.getElementById('admin-forecast-controls');
+        if (forecastControls) forecastControls.style.display = 'block';
     }
 
     // Initial Fetch
@@ -410,6 +440,10 @@ async function loadChat(partnerId) {
     // Initial fetch to show immediate results
     console.log(`Loading chat with partner: ${currentChatPartnerId}`);
     fetchChatUpdates(currentChatPartnerId);
+
+    // Hide banner if it was showing for this user or any user
+    const banner = document.getElementById('chat-notification-banner');
+    if (banner) banner.style.display = 'none';
 }
 
 async function pollChat() {
@@ -458,11 +492,18 @@ async function checkGlobalNotifications() {
             // If it's a new message (ID higher than last seen)
             // and NOT the first load (globalLastMsgId > 0)
             if (globalLastMsgId > 0 && latestChat.id > globalLastMsgId) {
-                playNotificationPing();
-
-                // Show notification banner for Admin
+                // Filter VABB from notifications if current user is Admin
                 if (currentUser && currentUser.role === 'mwo_admin') {
-                    showChatNotification(latestChat);
+                    const sender = userMapping[latestChat.sender_id];
+                    if (sender && sender.code === 'VABB') {
+                        // Skip notification for VABB as requested
+                        console.debug("Skipping VABB chat notification");
+                    } else {
+                        playNotificationPing();
+                        showChatNotification(latestChat);
+                    }
+                } else {
+                    playNotificationPing();
                 }
             }
 
@@ -476,6 +517,26 @@ async function checkGlobalNotifications() {
 }
 
 function showChatNotification(chat) {
+    // Show banner
+    const banner = document.getElementById('chat-notification-banner');
+    if (banner) {
+        banner.style.display = 'flex';
+        const notifMsg = document.getElementById('chat-notif-msg');
+        if (notifMsg) notifMsg.innerText = chat.message;
+        const notifText = document.getElementById('chat-notif-text');
+        if (notifText) {
+            const sender = userMapping[chat.sender_id] || { code: 'Unknown' };
+            notifText.innerText = `New message from ${sender.code}`;
+        }
+        const notifBtn = document.getElementById('chat-notif-btn');
+        if (notifBtn) {
+            notifBtn.onclick = () => {
+                loadChat(chat.sender_id);
+                banner.style.display = 'none';
+            };
+        }
+    }
+
     // Highlight the airport in the sidebar
     const airportItem = document.getElementById(`airport-item-${chat.sender_id}`);
     if (airportItem) {
@@ -554,6 +615,9 @@ async function loadHistoryAirports() {
         if (response.ok) {
             const airports = await response.json();
             airports.forEach(a => {
+                // Filter VABB from history list too
+                if (a.code === 'VABB') return;
+
                 const option = document.createElement('option');
                 option.value = a.code;
                 option.innerText = `${a.code} - ${a.name}`;
@@ -596,6 +660,9 @@ async function loadAirportList() {
         if (response.ok) {
             const airports = await response.json();
             airports.forEach((a, index) => {
+                // Skip VABB from communication list as requested
+                if (a.code === 'VABB') return;
+
                 const item = document.createElement('div');
                 item.id = `airport-item-${a.id}`;
                 item.className = 'airport-list-item';
@@ -787,24 +854,103 @@ async function submitReply(id) {
     }
 }
 
-async function replyToAlert(id) {
-    // Deprecated for toggleReplyInput but keeping for potential legacy usage or quick fix
-    const reply = prompt("Enter Reply:");
-    if (!reply) return;
+
+// Prediction Functions
+
+async function loadForecastAirports() {
+    const select = document.getElementById('forecast-airport-select');
+    if (!select) return;
+
+    // Clear existing, keep default
+    select.innerHTML = '<option value="">Select Airport...</option>';
 
     try {
-        const response = await fetch(`/alerts/${id}/reply?reply_text=${encodeURIComponent(reply)}`, {
-            method: 'POST',
+        const response = await fetch('/admin/airports', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+        if (response.ok) {
+            const airports = await response.json();
+            airports.forEach(a => {
+                const option = document.createElement('option');
+                option.value = a.code;
+                option.innerText = `${a.code} - ${a.name}`;
+                select.appendChild(option);
+            });
+        }
+    } catch (e) {
+        console.error("Failed to load forecast airports", e);
+    }
+}
+
+async function fetchPrediction(stationCode) {
+    if (!stationCode) return;
+
+    const display = document.getElementById('forecast-display');
+    display.innerHTML = '<p style="color: #666; font-style: italic;">Fetching latest data & prediction...</p>';
+
+    try {
+        const response = await fetch(`/prediction/${stationCode}`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
         });
 
         if (response.ok) {
-            fetchActiveAlerts();
+            const data = await response.json();
+            renderPrediction(data);
+        } else {
+            const err = await response.json();
+            display.innerHTML = `<p style="color: red;">Error: ${err.detail || 'Fetch failed'}</p>`;
         }
     } catch (e) {
         console.error(e);
+        display.innerHTML = `<p style="color: red;">Network Error</p>`;
     }
 }
+
+function renderPrediction(data) {
+    const display = document.getElementById('forecast-display');
+    if (!data || !data.forecast) {
+        display.innerHTML = `<p>No prediction available.</p>`;
+        return;
+    }
+
+    // Current Wind
+    const cur = data.current;
+    let html = `<div style="margin-bottom: 10px; font-size: 0.9em;">
+        <strong>Now (${cur.timestamp_str || 'Live'}):</strong> 
+        ${cur.wind_speed}KT @ ${cur.wind_dir}° 
+        <span style="color: #666;">(Source: ${cur.source || 'NOAA'})</span>
+    </div>`;
+
+    html += `<table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
+        <thead>
+            <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+                <th style="padding: 6px; text-align: left;">Time</th>
+                <th style="padding: 6px; text-align: left;">Speed</th>
+                <th style="padding: 6px; text-align: left;">Dir</th>
+            </tr>
+        </thead>
+        <tbody>`;
+
+    // Order: 30m to 4 Hours
+    const order = ['30 Mins', '1 Hour', '1 Hr 30 Min', '2 Hours', '2 Hr 30 Min', '3 Hours', '3 Hr 30 Min', '4 Hours'];
+
+    order.forEach(label => {
+        if (data.forecast[label]) {
+            const f = data.forecast[label];
+            html += `<tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 6px;">+${label}</td>
+                <td style="padding: 6px;"><b>${f.speed_kt}</b> KT</td>
+                <td style="padding: 6px;">${f.direction}°</td>
+            </tr>`;
+        }
+    });
+
+    html += `</tbody></table>`;
+    html += `<div style="margin-top: 5px; font-size: 0.75em; color: #888; text-align: right;">Updated: ${new Date().toLocaleTimeString()}</div>`;
+
+    display.innerHTML = html;
+}
+
 // Admin Functions
 function toggleAdminPanel() {
     const panel = document.getElementById('admin-panel');
