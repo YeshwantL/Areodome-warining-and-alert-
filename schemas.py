@@ -38,6 +38,9 @@ class AlertBase(BaseModel):
 class AlertCreate(AlertBase):
     pass
 
+class AlertFinalize(BaseModel):
+    warning_text: str
+
 class Alert(AlertBase):
     id: int
     sender_id: int

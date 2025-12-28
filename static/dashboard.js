@@ -1,5 +1,5 @@
 let currentUser = null;
-let audioEnabled = localStorage.getItem('audio_enabled') === 'true';
+let audioEnabled = localStorage.getItem('audio_enabled') !== 'false';
 let audioContext = null;
 // Audio State
 const ALARM_DURATION_MS = 60000; // 1 minute

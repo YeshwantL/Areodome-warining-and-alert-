@@ -1,8 +1,14 @@
+import sys
+import os
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.sql import func
+
+# Allow standalone execution
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import database, models, schemas, auth
 import transmet
 from models import TransmetStatus
@@ -51,7 +57,7 @@ async def get_active_alerts(
 @router.post("/{alert_id}/finalize", response_model=schemas.Alert)
 async def finalize_alert(
     alert_id: int,
-    warning_text: str, # Passed as query param or body? Let's use body if complex, but query is fine for simple string. Better: Body.
+    data: schemas.AlertFinalize,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_active_user)
 ):
@@ -64,7 +70,7 @@ async def finalize_alert(
     
     alert.status = models.AlertStatus.FINALIZED
     alert.finalized_at = datetime.utcnow()
-    alert.final_warning_text = warning_text
+    alert.final_warning_text = data.warning_text
     
     db.commit()
     db.refresh(alert)

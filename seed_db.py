@@ -19,19 +19,6 @@ def seed():
         )
         db.add(mwo_admin)
 
-    # 1. MWO Admin (Generic)
-    mwo_admin = db.query(models.User).filter(models.User.username == "mwo_admin").first()
-    if not mwo_admin:
-        print("Creating MWO Admin (Generic)...")
-        mwo_admin = models.User(
-            username="mwo_admin",
-            password_hash=auth.get_password_hash("admin123"),
-            password_encrypted=auth.encrypt_password("admin123"),
-            role=models.UserRole.MWO_ADMIN,
-            airport_code="VABB_MWO"
-        )
-        db.add(mwo_admin)
-    
     # 2. Regional Airports List
     # Format: Code, Name
     airports = [

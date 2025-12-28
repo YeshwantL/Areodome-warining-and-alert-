@@ -1,0 +1,25 @@
+[Unit]
+Description=Aerodrome Warning System Service
+After=network.target
+
+[Service]
+# Replace 'mwomumbai' with the actual server username if different
+User=mwomumbai
+Group=mwomumbai
+
+# Replace with the absolute path to your app directory on the server
+# Example: /home/mwomumbai/Aerodome-Warning-System
+WorkingDirectory=/Users/harsh/Downloads/app
+
+# Replace with the absolute path to your virtual environment's python
+# Example: /home/mwomumbai/Aerodome-Warning-System/.venv/bin/python
+ExecStart=/Users/harsh/Downloads/app/.venv/bin/python main.py
+
+Restart=always
+RestartSec=5
+
+# Environment variables can be added here
+# Environment=DATABASE_URL=sqlite:///./sql_app.db
+
+[Install]
+WantedBy=multi-user.target

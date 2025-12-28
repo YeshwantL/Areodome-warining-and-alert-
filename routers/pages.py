@@ -1,6 +1,12 @@
+import sys
+import os
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+
+# Allow standalone execution
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import auth
 
 router = APIRouter(tags=["Pages"])

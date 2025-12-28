@@ -1,9 +1,15 @@
+"""
+WIND PREDICTION LOGIC
+Contains the WindPredictor class and data handling utilities for wind forecasting.
+NOTE: This is NOT the database models file (which is models.py).
+"""
 import pandas as pd
 import numpy as np
+import os
+from datetime import datetime
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error
-import datetime
 
 class WindPredictor:
     def __init__(self):
@@ -27,11 +33,22 @@ class WindPredictor:
         df['u'] = -df['wind_speed'] * np.sin(rad)
         df['v'] = -df['wind_speed'] * np.cos(rad)
         
-        # 3. Lags (Capturing momentum)
+        # 3. Gust Component (if available)
+        # Often gustiness is a good indicator of turbulence/change
+        if 'wind_gust' in df.columns:
+            df['gust_u'] = -df['wind_gust'] * np.sin(rad)
+            df['gust_v'] = -df['wind_gust'] * np.cos(rad)
+        else:
+            df['gust_u'] = df['u']
+            df['gust_v'] = df['v']
+
+        # 4. Lags (Capturing momentum)
         for lag in [1, 2, 4]: # 30m, 60m, 120m ago
             df[f'u_lag{lag}'] = df['u'].shift(lag)
             df[f'v_lag{lag}'] = df['v'].shift(lag)
             df[f's_lag{lag}'] = df['wind_speed'].shift(lag)
+            if 'wind_gust' in df.columns:
+                df[f'g_lag{lag}'] = df['wind_gust'].shift(lag)
             
         return df.dropna()
 
@@ -40,6 +57,11 @@ class WindPredictor:
             return None
 
         df = df.copy()
+        
+        # Deduplicate: Drop exact same METAR for same station at same time
+        if 'original' in df.columns:
+            df = df.drop_duplicates(subset=['original', 'timestamp_obj'])
+
         if 'datetime_obj' not in df.columns:
              if 'timestamp_obj' in df.columns:
                  df['datetime_obj'] = pd.to_datetime(df['timestamp_obj'], format='mixed')
@@ -49,7 +71,12 @@ class WindPredictor:
         df = df.set_index('datetime_obj').sort_index()
         
         # Resample to 30min and handle missing values
-        df_resampled = df.resample('30min').last().ffill()
+        # We use mean for speed to smooth out jitter, and last for direction
+        res_logic = {'wind_speed': 'mean', 'wind_dir': 'last'}
+        if 'wind_gust' in df.columns:
+            res_logic['wind_gust'] = 'max'
+            
+        df_resampled = df.resample('30min').agg(res_logic).ffill()
         
         return df_resampled
 
@@ -66,6 +93,9 @@ class WindPredictor:
             return
 
         feature_cols = ['hour_sin', 'hour_cos', 'u', 'v', 'u_lag1', 'v_lag1', 'u_lag2', 'v_lag2']
+        if 'wind_gust' in df_resampled.columns:
+             feature_cols += ['gust_u', 'gust_v']
+        
         X_base = df_feats[feature_cols]
         
         shifts = {
@@ -86,36 +116,47 @@ class WindPredictor:
                 
         self.is_trained = True
 
-    def predict(self, current_observation):
-        # We need history to predict with lags
-        # But for the API, we often only have the 'current' observation.
-        # Ideally refresh_model provides the context.
-        # For now, if no history in predictor, fallback to persistent.
-        
+    def predict(self, current_observation, history_df=None):
+        """Predict wind with historical context if available."""
         if not self.is_trained:
             s = current_observation['wind_speed']
             d = current_observation['wind_dir']
             return {h: (s, d) for h in self.horizons}
 
-        # Need to reconstruct features for the 'now' point.
-        # This is tricky because we need lags.
-        # Let's rely on the fact that refresh_model was just called, 
-        # but the predictor should probably store the last few points.
-        
-        # Temporary: Use persistent if lags missing, or use 0 as fallback for lags
-        # (Winds are usually persistent anyway, so this is safe as a starting point)
-        
-        h_sin = np.sin(2 * np.pi * current_observation['datetime_obj'].hour / 24)
-        h_cos = np.cos(2 * np.pi * current_observation['datetime_obj'].hour / 24)
-        rad = np.radians(current_observation['wind_dir'])
-        u = -current_observation['wind_speed'] * np.sin(rad)
-        v = -current_observation['wind_speed'] * np.cos(rad)
-        
-        # Hardcoding lags as same as current for simplicity if history not available
-        # In a real system, we'd pass the full DF here.
-        X = pd.DataFrame([[h_sin, h_cos, u, v, u, v, u, v]], 
-                         columns=['hour_sin', 'hour_cos', 'u', 'v', 'u_lag1', 'v_lag1', 'u_lag2', 'v_lag2'])
-        
+        # 1. Prepare Features for the LAST point
+        # We need the last few points for lags.
+        if history_df is not None and not history_df.empty:
+            resampled_hist = self.prepare_data(history_df)
+            if resampled_hist is not None and len(resampled_hist) >= 4:
+                # Add current observation to history for feature calculation
+                curr_df = pd.DataFrame([current_observation])
+                if 'timestamp_obj' in curr_df.columns:
+                    curr_df['datetime_obj'] = pd.to_datetime(curr_df['timestamp_obj'], format='mixed')
+                else:
+                    curr_df['datetime_obj'] = datetime.now()
+                curr_df = curr_df.set_index('datetime_obj')
+                
+                # Combine
+                # Extract common columns to avoid concat errors
+                common_cols = [c for c in resampled_hist.columns if c in curr_df.columns]
+                combined = pd.concat([resampled_hist, curr_df[common_cols]])
+                combined = combined.resample('30min').last().ffill()
+                
+                feats = self.prepare_features(combined)
+                if not feats.empty:
+                    X_input = feats.tail(1)
+                    feature_cols = ['hour_sin', 'hour_cos', 'u', 'v', 'u_lag1', 'v_lag1', 'u_lag2', 'v_lag2']
+                    if 'gust_u' in feats.columns:
+                        feature_cols += ['gust_u', 'gust_v']
+                    
+                    X = X_input[feature_cols]
+                else:
+                    return self._persistent_fallback(current_observation)
+            else:
+                return self._persistent_fallback(current_observation)
+        else:
+            return self._persistent_fallback(current_observation)
+
         results = {}
         for h in self.horizons:
             try:
@@ -132,6 +173,11 @@ class WindPredictor:
                 results[h] = (current_observation['wind_speed'], current_observation['wind_dir'])
         
         return results
+
+    def _persistent_fallback(self, current_observation):
+        s = current_observation['wind_speed']
+        d = current_observation['wind_dir']
+        return {h: (s, d) for h in self.horizons}
 
 import os
 from datetime import datetime
@@ -153,9 +199,12 @@ def load_data():
 
 def save_data(data_dict):
     if 'timestamp_obj' not in data_dict or not data_dict['timestamp_obj']:
-         data_dict['timestamp_obj'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+         data_dict['timestamp_obj'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    cols = ['original', 'wind_speed', 'wind_dir', 'unit', 'timestamp_str', 'timestamp_obj']
+    if 'wind_gust' not in data_dict:
+        data_dict['wind_gust'] = data_dict['wind_speed']
+    
+    cols = ['original', 'wind_speed', 'wind_gust', 'wind_dir', 'unit', 'timestamp_str', 'timestamp_obj']
     df = pd.DataFrame([data_dict], columns=cols)
     
     if not os.path.exists(CSV_FILE):

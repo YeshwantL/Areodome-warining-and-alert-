@@ -1,3 +1,8 @@
+"""
+DATABASE MODELS
+Contains SQLAlchemy models for Users, Alerts, and Chats.
+NOTE: This is NOT the wind prediction file (which is model.py).
+"""
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum, JSON, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func

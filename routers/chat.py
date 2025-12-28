@@ -1,7 +1,13 @@
+import sys
+import os
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from typing import List, Optional
+
+# Allow standalone execution
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import database, models, schemas, auth
 
 router = APIRouter(

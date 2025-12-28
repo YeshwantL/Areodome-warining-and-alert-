@@ -20,33 +20,31 @@ def parse_metar(metar_str):
             # Note: This is an approximation of the actual date
             timestamp_str = f"{now.year}-{now.month:02d}-{day} {hour}:{minute}:00"
 
-        # 3. Extract Wind (e.g., 28005KT or VRB02KT)
-        # Pattern: (Direction 3 digits or VRB)(Speed 2-3 digits)(Unit KT/MPS)
-        wind_match = re.search(r'([0-9]{3}|VRB)([0-9]{2,3})(KT|MPS|G[0-9]{2,3})', metar_str)
+        # 3. Extract Wind (e.g., 28005KT or 28010G20KT)
+        # Pattern: (Direction 3 digits or VRB)(Speed 2-3 digits)(Optional G + Guest speed 2-3 digits)(Unit KT/MPS etc)
+        # We look for something like 28005KT or 28005G15KT
+        wind_match = re.search(r'([0-9]{3}|VRB)([0-9]{2,3})(G[0-9]{2,3})?(KT|MPS|KPH)', metar_str)
         
         if wind_match:
-            dir_str, speed_str, unit = wind_match.groups()
+            dir_str, speed_str, gust_str, unit = wind_match.groups()
             
-            # Convert VRB to a default or keep as 0? 
-            # For simplistic prediction, let's treat VRB as -1 or 0, 
-            # but ideally we handle it. Here we use 0.
             direction = 0 if dir_str == 'VRB' else int(dir_str)
+            speed = int(speed_str)
+            gust = int(gust_str[1:]) if gust_str else speed
             
-            # Handle gusts (e.g. 10G20KT)
-            if 'G' in unit:
-                # Just take the base speed for now, or handle specifically
-                speed = int(speed_str)
-            else:
-                speed = int(speed_str)
-            
-            # Simple unit normalization KT
+            # Simple unit normalization to KT
             actual_unit = "KT"
             if "MPS" in unit:
-                speed = speed * 1.94384 # m/s to knots
+                speed = speed * 1.94384
+                gust = gust * 1.94384
+            elif "KPH" in unit:
+                speed = speed * 0.539957
+                gust = gust * 0.539957
             
             return {
                 "original": metar_str,
-                "wind_speed": speed,
+                "wind_speed": round(speed, 2),
+                "wind_gust": round(gust, 2),
                 "wind_dir": direction,
                 "unit": actual_unit,
                 "timestamp_str": time_match.group(0) if time_match else "",

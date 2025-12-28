@@ -12,6 +12,7 @@ async function handleLogin(event) {
         if (response.ok) {
             const data = await response.json();
             localStorage.setItem('token', data.access_token);
+            localStorage.setItem('audio_enabled', 'true');
             window.location.href = '/dashboard';
         } else {
             document.getElementById('error-message').innerText = 'Invalid credentials';
