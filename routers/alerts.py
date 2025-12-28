@@ -4,6 +4,8 @@ from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.sql import func
 import database, models, schemas, auth
+import transmet
+from models import TransmetStatus
 
 router = APIRouter(
     prefix="/alerts",
@@ -145,3 +147,33 @@ async def get_history(
     query = query.order_by(models.Alert.created_at.desc())
     
     return query.all()
+
+@router.post("/{alert_id}/transmit", response_model=schemas.Alert)
+async def transmit_alert(
+    alert_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_active_user)
+):
+    alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    
+    if alert.status != models.AlertStatus.FINALIZED:
+        raise HTTPException(status_code=400, detail="Only finalized alerts can be transmitted")
+    
+    if not alert.final_warning_text:
+         raise HTTPException(status_code=400, detail="Final warning text is missing")
+
+    # Send to TRANSMET
+    result = transmet.send_to_transmet(alert.final_warning_text)
+    
+    if result["status"] == "success":
+        alert.transmet_status = TransmetStatus.SUCCESS
+        alert.transmet_response = result["response"]
+    else:
+        alert.transmet_status = TransmetStatus.FAILURE
+        alert.transmet_response = result["response"]
+        
+    db.commit()
+    db.refresh(alert)
+    return alert

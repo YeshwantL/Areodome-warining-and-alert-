@@ -371,9 +371,11 @@ function renderAlerts(alerts) {
             <strong>${alert.type} Alert</strong> <br>
             ${contentStr} <br>
             <small>Valid: ${alert.content.valid_from || alert.content.time} UTC</small>
+            ${alert.transmet_status ? `<div style="margin-top: 5px; font-weight: bold; color: ${alert.transmet_status === 'success' ? 'green' : 'red'};">TRANSMET: ${alert.transmet_status.toUpperCase()}</div>` : ''}
             ${replyHtml}
             ${currentUser && currentUser.role === 'mwo_admin' ? `<div style="margin-top: 5px;">
-                <button onclick="finalizeAlert(${alert.id})">Finalize</button>
+                ${alert.status === 'active' ? `<button onclick="finalizeAlert(${alert.id})">Finalize</button>` : ''}
+                ${alert.status === 'finalized' ? `<button onclick="transmitAlert(${alert.id})" style="background-color: #6610f2;">Transmit to TRANSMET</button>` : ''}
                 <button onclick="toggleReplyInput(${alert.id})" style="background-color: #008CBA;">Reply</button>
                 <div id="reply-container-${alert.id}" class="reply-input-container" style="display: ${openReplyBoxes.has(alert.id) ? 'flex' : 'none'};">
                     <input type="text" id="reply-input-${alert.id}" placeholder="Enter reply..." 
@@ -1144,4 +1146,26 @@ function filterAirports() {
             item.style.display = 'none';
         }
     });
+}
+
+async function transmitAlert(id) {
+    if (!confirm("Are you sure you want to transmit this alert to the TRANSMET server?")) return;
+
+    try {
+        const response = await fetch(`/alerts/${id}/transmit`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+
+        if (response.ok) {
+            alert("Transmission Successful!");
+            fetchActiveAlerts();
+        } else {
+            const err = await response.json();
+            alert("Transmission Failed: " + (err.detail || "Unknown error"));
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Transmission Failed: Network Error");
+    }
 }

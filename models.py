@@ -13,6 +13,11 @@ class AlertStatus(str, enum.Enum):
     FINALIZED = "finalized"
     ARCHIVED = "archived"
 
+class TransmetStatus(str, enum.Enum):
+    PENDING = "pending"
+    SUCCESS = "success"
+    FAILURE = "failure"
+
 class User(Base):
     __tablename__ = "users"
 
@@ -44,6 +49,10 @@ class Alert(Base):
     
     # Admin Reply
     admin_reply = Column(String, nullable=True)
+
+    # TRANSMET Status
+    transmet_status = Column(Enum(TransmetStatus), nullable=True, default=None)
+    transmet_response = Column(String, nullable=True)
 
     sender = relationship("User", back_populates="alerts")
 
