@@ -11,6 +11,7 @@ class TokenData(BaseModel):
     username: Optional[str] = None
     role: Optional[str] = None
     id: Optional[int] = None
+    sid: Optional[str] = None
 
 class UserBase(BaseModel):
     username: str

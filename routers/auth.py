@@ -15,9 +15,15 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    import uuid
+    new_sid = str(uuid.uuid4())
+    user.active_session_id = new_sid
+    db.commit()
+
     access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = auth.create_access_token(
-        data={"sub": user.username, "role": user.role.value, "id": user.id}, expires_delta=access_token_expires
+        data={"sub": user.username, "role": user.role.value, "id": user.id, "sid": new_sid}, 
+        expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 

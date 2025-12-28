@@ -59,14 +59,24 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
+        sid: str = payload.get("sid")
         if username is None:
             raise credentials_exception
-        token_data = schemas.TokenData(username=username)
+        token_data = schemas.TokenData(username=username, sid=sid)
     except JWTError:
         raise credentials_exception
     user = db.query(models.User).filter(models.User.username == token_data.username).first()
     if user is None:
         raise credentials_exception
+    
+    # Session Control: Verify sid matches active_session_id in DB
+    if token_data.sid != user.active_session_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session invalidated by a more recent login",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        
     return user
 
 async def get_current_active_user(current_user: models.User = Depends(get_current_user)):
