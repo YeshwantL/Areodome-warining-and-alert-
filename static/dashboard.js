@@ -1005,15 +1005,13 @@ async function addAirport(event) {
 
 // History Functions
 async function searchHistory() {
-    const date = document.getElementById('history-date').value;
-    const month = document.getElementById('history-month').value;
+    const startDate = document.getElementById('history-start-date').value;
+    const endDate = document.getElementById('history-end-date').value;
     const airport = document.getElementById('history-airport-select').value;
 
     let url = '/alerts/history?';
-    if (date) url += `date=${date}&`;
-    if (month) url += `month=${month}&`; // Fixed bug: else if prevented both (though technically UI might only allow one or backend handles priority)
-    // Actually typically one or the other. Backend handles date priority. Using Query Params is fine.
-
+    if (startDate) url += `start_date=${startDate}&`;
+    if (endDate) url += `end_date=${endDate}&`;
     if (airport) url += `airport_code=${airport}`;
 
     // Clear previous
@@ -1035,6 +1033,52 @@ async function searchHistory() {
     } catch (e) {
         console.error(e)
         list.innerHTML = `<p style="color: red;">Network Error</p>`;
+    }
+}
+
+async function downloadHistory() {
+    const startDate = document.getElementById('history-start-date').value;
+    const endDate = document.getElementById('history-end-date').value;
+    const airport = document.getElementById('history-airport-select').value;
+
+    let url = '/alerts/history/download?';
+    if (startDate) url += `start_date=${startDate}&`;
+    if (endDate) url += `end_date=${endDate}&`;
+    if (airport) url += `airport_code=${airport}`;
+
+    try {
+        const response = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+
+        if (response.ok) {
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+
+            // Extract filename from header if possible
+            const contentDisposition = response.headers.get('Content-Disposition');
+            let filename = `alert_history_${new Date().toISOString().split('T')[0]}.txt`;
+            if (contentDisposition && contentDisposition.indexOf('filename=') !== -1) {
+                const parts = contentDisposition.split('filename=');
+                if (parts.length > 1) {
+                    filename = parts[1].replace(/"/g, '');
+                }
+            }
+
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+        } else {
+            const err = await response.json();
+            alert(`Download failed: ${err.detail || 'Unknown error'}`);
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Network error during download");
     }
 }
 
@@ -1079,10 +1123,10 @@ function renderHistory(alerts) {
 }
 
 function clearHistory() {
-    document.getElementById('history-date').value = '';
-    document.getElementById('history-month').value = '';
+    document.getElementById('history-start-date').value = '';
+    document.getElementById('history-end-date').value = '';
     document.getElementById('history-airport-select').value = '';
-    document.getElementById('history-list').innerHTML = '<p style="color: grey; font-size: 0.9em;">Select a date or month to view history.</p>';
+    document.getElementById('history-list').innerHTML = '<p style="color: grey; font-size: 0.9em;">Select a date range to view history.</p>';
 }
 
 async function promptAdminPassword() {

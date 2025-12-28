@@ -223,20 +223,29 @@
             <div class="card" id="history-section" style="margin-top: 2rem; display: none;">
                 <h3>Historical Alerts</h3>
                 <div class="history-controls"
-                    style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px;">
-                    <div style="display: flex; max-width: 100%; gap: 5px;">
-                        <input type="date" id="history-date" placeholder="Date" style="flex: 1;">
-                        <input type="month" id="history-month" placeholder="Month" style="flex: 1;">
+                    style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px;">
+                    <div style="display: flex; gap: 5px; align-items: center;">
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.75rem; color: #666;">From:</label>
+                            <input type="date" id="history-start-date" style="width: 100%; padding: 5px;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.75rem; color: #666;">To:</label>
+                            <input type="date" id="history-end-date" style="width: 100%; padding: 5px;">
+                        </div>
                     </div>
                     <div id="admin-history-filter" style="display: none;">
-                        <select id="history-airport-select" style="width: 100%;">
+                        <select id="history-airport-select" style="width: 100%; padding: 8px;">
                             <option value="">All Airports</option>
                             <!-- Populated by JS -->
                         </select>
                     </div>
                     <div style="display: flex; gap: 5px;">
                         <button onclick="searchHistory()" style="background-color: #2c3e50; flex: 1;">Search</button>
-                        <button onclick="clearHistory()" style="background-color: #95a5a6;">Clear</button>
+                        <button onclick="downloadHistory()" style="background-color: #27ae60; flex: 1;">Download
+                            .txt</button>
+                        <button onclick="clearHistory()"
+                            style="background-color: #95a5a6; padding: 0 10px;">Clear</button>
                     </div>
                 </div>
                 <div id="history-list" style="max-height: 400px; overflow-y: auto;">
