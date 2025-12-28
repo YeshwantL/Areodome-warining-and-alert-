@@ -41,3 +41,30 @@ def get_db():
         yield db
     finally:
         db.close()
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    
+    # Check for SSL certificates
+    key_file = "key.pem"
+    cert_file = "cert.pem"
+    
+    if os.path.exists(key_file) and os.path.exists(cert_file):
+        print("SSL Certificates found. Running in HTTPS mode.")
+        uvicorn.run(
+            "main:app", 
+            host="0.0.0.0", 
+            port=8000, 
+            reload=True,
+            ssl_keyfile=key_file, 
+            ssl_certfile=cert_file
+        )
+    else:
+        print("Warning: SSL Certificates not found. Running in HTTP mode.")
+        uvicorn.run(
+            "main:app", 
+            host="0.0.0.0", 
+            port=8000, 
+            reload=True
+        )
