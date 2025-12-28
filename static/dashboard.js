@@ -79,6 +79,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // Auto-load prediction
             fetchPrediction(currentUser.airport_code);
+
+            // Auto-load history for regional user
+            searchHistory();
+        }
+
+        // Show history section for regional users as well
+        if (document.getElementById('history-section')) {
+            document.getElementById('history-section').style.display = 'block';
         }
 
     } else if (currentUser.role === 'mwo_admin') {
@@ -1089,35 +1097,55 @@ function renderHistory(alerts) {
     list.innerHTML = '';
 
     if (alerts.length === 0) {
-        list.innerHTML = '<p>No alerts found.</p>';
+        list.innerHTML = '<p style="padding: 10px; color: #666;">No alerts found for this range.</p>';
         return;
     }
 
     alerts.forEach(alert => {
         const div = document.createElement('div');
-        div.className = 'alert-item'; // Use same styling or similar
-        div.style.padding = '8px';
-        div.style.marginBottom = '8px';
-        div.style.border = '1px solid #ddd';
-        div.style.borderRadius = '4px';
-        div.style.background = '#f9f9f9';
+        div.className = 'history-item';
+        div.style.padding = '12px';
+        div.style.marginBottom = '10px';
+        div.style.border = '1px solid #e0e0e0';
+        div.style.borderRadius = '6px';
+        div.style.background = '#ffffff';
+        div.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
 
-        // Simplified view for history
-        let contentStr = '';
-        if (alert.content.generated_text) contentStr = `<strong>${alert.content.generated_text}</strong>`;
-        else contentStr = `Alert Type: ${alert.type}`;
+        const station = alert.content.airport || alert.sender_id || 'Unknown';
+        const type = alert.type.toUpperCase();
+        const status = alert.status.toUpperCase();
+        const dateStr = new Date(alert.created_at).toLocaleString('en-IN', {
+            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+        });
 
-        // Show Admin Reply
-        let replyHtml = '';
-        if (alert.admin_reply) {
-            replyHtml = `<div style="font-size: 0.9em; color: #00796b; margin-top: 4px;">Reply: ${alert.admin_reply}</div>`;
+        let alertContent = '';
+        if (alert.final_warning_text) {
+            alertContent = `<div style="margin-top: 5px; font-weight: bold; color: #2c3e50;">${alert.final_warning_text}</div>`;
+        } else if (alert.content.generated_text) {
+            alertContent = `<div style="margin-top: 5px; color: #34495e;">${alert.content.generated_text}</div>`;
+        } else {
+            alertContent = `<div style="margin-top: 5px; font-size: 0.9em; color: #7f8c8d;">Type: ${type}</div>`;
         }
 
-        const dateStr = new Date(alert.created_at).toLocaleString();
+        let replyHtml = '';
+        if (alert.admin_reply) {
+            replyHtml = `<div style="margin-top: 8px; padding: 6px 10px; background: #e8f5e9; border-left: 3px solid #4caf50; font-size: 0.9em; border-radius: 0 4px 4px 0;">
+                <strong style="color: #2e7d32;">MWO Reply:</strong> ${alert.admin_reply}
+            </div>`;
+        }
+
+        const statusColor = alert.status === 'active' ? '#e67e22' : '#27ae60';
 
         div.innerHTML = `
-            <div style="font-size: 0.85em; color: #555;">${dateStr} (Sender: ${alert.sender_id})</div>
-            ${contentStr}
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px;">
+                <div style="font-weight: bold; color: #0055a5;">${station}</div>
+                <div style="font-size: 0.75rem; color: #95a5a6;">${dateStr}</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+                <span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 10px; background: ${statusColor}; color: white; text-transform: uppercase; font-weight: bold;">${status}</span>
+                <span style="font-size: 0.8rem; font-weight: 600; color: #7f8c8d;">${type}</span>
+            </div>
+            ${alertContent}
             ${replyHtml}
         `;
         list.appendChild(div);
