@@ -44,8 +44,10 @@ async def get_latest_received_chat(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_active_user)
 ):
+    # Only return the latest message if it hasn't been read yet
     chat = db.query(models.Chat).filter(
-        models.Chat.receiver_id == current_user.id
+        models.Chat.receiver_id == current_user.id,
+        models.Chat.is_read == False
     ).order_by(models.Chat.timestamp.desc()).first()
     
     return chat
@@ -69,11 +71,20 @@ async def get_chat_history(
         # If I am Regional, I can only see chat where I am sender or receiver, AND partner is Admin.
     
     # Query: (Sender=Me AND Receiver=Partner) OR (Sender=Partner AND Receiver=Me)
-    chats = db.query(models.Chat).filter(
+    query = db.query(models.Chat).filter(
         or_(
             and_(models.Chat.sender_id == current_user.id, models.Chat.receiver_id == partner_id),
             and_(models.Chat.sender_id == partner_id, models.Chat.receiver_id == current_user.id)
         )
-    ).order_by(models.Chat.timestamp.asc()).all()
+    )
+
+    # Mark these messages as read as they are being viewed
+    unread_chats = query.filter(models.Chat.receiver_id == current_user.id, models.Chat.is_read == False).all()
+    for c in unread_chats:
+        c.is_read = True
+    if unread_chats:
+        db.commit()
+
+    chats = query.order_by(models.Chat.timestamp.asc()).all()
     
     return chats

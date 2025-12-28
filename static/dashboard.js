@@ -499,14 +499,13 @@ async function checkGlobalNotifications() {
             const latestChat = await response.json();
             if (!latestChat) return;
 
-            // If it's a new message (ID higher than last seen)
-            // and NOT the first load (globalLastMsgId > 0)
-            if (globalLastMsgId > 0 && latestChat.id > globalLastMsgId) {
+            // If it's a new unread message (backend only returns unread messages now)
+            // and we haven't alerted for THIS specific message ID in this session yet
+            if (latestChat.id !== globalLastMsgId) {
                 // Filter VABB from notifications if current user is Admin
                 if (currentUser && currentUser.role === 'mwo_admin') {
                     const sender = userMapping[latestChat.sender_id];
                     if (sender && sender.code === 'VABB') {
-                        // Skip notification for VABB as requested
                         console.debug("Skipping VABB chat notification");
                     } else {
                         playNotificationPing();
@@ -514,11 +513,12 @@ async function checkGlobalNotifications() {
                     }
                 } else {
                     playNotificationPing();
+                    showChatNotification(latestChat);
                 }
+                // Update last seen ID in this session to avoid repeated alerts for the SAME message 
+                // while it's still unread (though it should be marked read shortly)
+                globalLastMsgId = latestChat.id;
             }
-
-            // Update last seen ID
-            globalLastMsgId = latestChat.id;
         }
     } catch (e) {
         // Handle 404 (no messages yet) or other issues
@@ -1145,6 +1145,7 @@ function renderHistory(alerts) {
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
                 <span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 10px; background: ${statusColor}; color: white; text-transform: uppercase; font-weight: bold;">${status}</span>
                 <span style="font-size: 0.8rem; font-weight: 600; color: #7f8c8d;">${type}</span>
+                ${alert.transmet_status ? `<span style="font-size: 0.7rem; color: ${alert.transmet_status === 'success' ? '#27ae60' : '#e74c3c'}; font-weight: bold;">[TRANSMET: ${alert.transmet_status.toUpperCase()}]</span>` : ''}
             </div>
             ${alertContent}
             ${replyHtml}

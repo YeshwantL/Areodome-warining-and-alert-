@@ -146,6 +146,8 @@ async def transmit_alert(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_active_user)
 ):
+    if current_user.role != models.UserRole.MWO_ADMIN:
+        raise HTTPException(status_code=403, detail="Only MWO Admin can transmit alerts")
     alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")

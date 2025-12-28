@@ -11,6 +11,7 @@ class TokenData(BaseModel):
     username: Optional[str] = None
     role: Optional[str] = None
     id: Optional[int] = None
+    sid: Optional[str] = None
 
 class UserBase(BaseModel):
     username: str
@@ -61,6 +62,7 @@ class ChatCreate(ChatBase):
 class Chat(ChatBase):
     id: int
     sender_id: Optional[int] = None
+    is_read: bool = False
     timestamp: datetime
 
     class Config:
