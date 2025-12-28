@@ -91,8 +91,8 @@ async def reply_alert(
 
 @router.get("/history", response_model=List[schemas.Alert])
 async def get_history(
-    date: Optional[str] = None, # YYYY-MM-DD
-    month: Optional[str] = None, # YYYY-MM
+    start_date: Optional[str] = None, # YYYY-MM-DD
+    end_date: Optional[str] = None,   # YYYY-MM-DD
     airport_code: Optional[str] = None,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_active_user)
@@ -102,36 +102,28 @@ async def get_history(
     # 1. Join with User to allow filtering by airport_code
     query = query.join(models.User, models.Alert.sender_id == models.User.id)
     
-    # 2. Filter by Date or Month
-    if date:
-        # Assuming date is YYYY-MM-DD
+    # 2. Filter by Date Range
+    if start_date:
         try:
-            query_date = datetime.strptime(date, "%Y-%m-%d").date()
-            # Filter where created_at matches this date
-            # SQLite specific, but standard enough:
-            # We can use cast to date or compare ranges. Range is safer.
-            start_of_day = datetime(query_date.year, query_date.month, query_date.day, 0, 0, 0)
-            end_of_day = datetime(query_date.year, query_date.month, query_date.day, 23, 59, 59)
-            query = query.filter(models.Alert.created_at >= start_of_day, models.Alert.created_at <= end_of_day)
+            sd = datetime.strptime(start_date, "%Y-%m-%d")
+            query = query.filter(models.Alert.created_at >= sd)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-    elif month:
-        # Assuming month is YYYY-MM
+            raise HTTPException(status_code=400, detail="Invalid start_date format")
+    
+    if end_date:
         try:
-            year, m = map(int, month.split('-'))
-            # Filter by month
-            # Using extract
-            from sqlalchemy import extract
-            query = query.filter(extract('year', models.Alert.created_at) == year)
-            query = query.filter(extract('month', models.Alert.created_at) == m)
+            ed = datetime.strptime(end_date, "%Y-%m-%d")
+            # Set to end of day
+            ed = ed.replace(hour=23, minute=59, second=59)
+            query = query.filter(models.Alert.created_at <= ed)
         except ValueError:
-             raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
-    else:
-        # Default: Last 6 months? Or all? Plan said default 6 months.
-        # Let's import timedelta
+            raise HTTPException(status_code=400, detail="Invalid end_date format")
+
+    if not start_date and not end_date:
+        # Default: Last 30 days if no range specified
         from datetime import timedelta
-        six_months_ago = datetime.utcnow() - timedelta(days=180)
-        query = query.filter(models.Alert.created_at >= six_months_ago)
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        query = query.filter(models.Alert.created_at >= thirty_days_ago)
 
     # 3. Role Based Access
     if current_user.role == models.UserRole.REGIONAL:
@@ -177,3 +169,84 @@ async def transmit_alert(
     db.commit()
     db.refresh(alert)
     return alert
+
+@router.get("/history/download")
+async def download_history(
+    start_date: Optional[str] = None, # YYYY-MM-DD
+    end_date: Optional[str] = None,   # YYYY-MM-DD
+    airport_code: Optional[str] = None,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_active_user)
+):
+    from fastapi.responses import StreamingResponse
+    import io
+
+    query = db.query(models.Alert).join(models.User, models.Alert.sender_id == models.User.id)
+
+    # 1. Access Control
+    if current_user.role == models.UserRole.REGIONAL:
+        query = query.filter(models.Alert.sender_id == current_user.id)
+    elif current_user.role == models.UserRole.MWO_ADMIN:
+        if airport_code:
+            query = query.filter(models.User.airport_code == airport_code)
+
+    # 2. Date Range Filtering
+    if start_date:
+        try:
+            sd = datetime.strptime(start_date, "%Y-%m-%d")
+            query = query.filter(models.Alert.created_at >= sd)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format")
+    if end_date:
+        try:
+            ed = datetime.strptime(end_date, "%Y-%m-%d")
+            # Set to end of day
+            ed = ed.replace(hour=23, minute=59, second=59)
+            query = query.filter(models.Alert.created_at <= ed)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format")
+
+    alerts = query.order_by(models.Alert.created_at.desc()).all()
+
+    # 3. Generate Text Content
+    output = io.StringIO()
+    output.write(f"--- AERODROME WARNING HISTORY REPORT ---\n")
+    output.write(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    output.write(f"Period: {start_date or 'Start'} to {end_date or 'End'}\n")
+    output.write(f"Airport Filter: {airport_code or 'All'}\n")
+    output.write("-" * 50 + "\n\n")
+
+    if not alerts:
+        output.write("No alerts found for the selected criteria.\n")
+    else:
+        for idx, alert in enumerate(alerts, 1):
+            airport = alert.sender.airport_code or "Unknown"
+            timestamp = alert.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            
+            output.write(f"[{idx}] STATION: {airport}\n")
+            output.write(f"    TIME: {timestamp}\n")
+            output.write(f"    TYPE: {alert.type.upper()}\n")
+            output.write(f"    STATUS: {alert.status.value.upper()}\n")
+            
+            if alert.final_warning_text:
+                output.write(f"    WARNING TEXT:\n    {alert.final_warning_text}\n")
+            elif alert.content and 'generated_text' in alert.content:
+                output.write(f"    PREVIEW TEXT:\n    {alert.content['generated_text']}\n")
+            else:
+                # Handle dictionary representation
+                content_str = str(alert.content)
+                output.write(f"    CONTENT: {content_str}\n")
+                
+            if alert.admin_reply:
+                output.write(f"    ADMIN REPLY: {alert.admin_reply}\n")
+                
+            output.write("-" * 30 + "\n")
+
+    output.seek(0)
+    
+    filename = f"alert_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode('utf-8')),
+        media_type="text/plain",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
