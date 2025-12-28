@@ -61,6 +61,7 @@ class ChatCreate(ChatBase):
 class Chat(ChatBase):
     id: int
     sender_id: Optional[int] = None
+    is_read: bool = False
     timestamp: datetime
 
     class Config:

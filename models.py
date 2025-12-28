@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum, JSON
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum, JSON, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -63,6 +63,7 @@ class Chat(Base):
     sender_id = Column(Integer, ForeignKey("users.id"))
     receiver_id = Column(Integer, ForeignKey("users.id"))
     message = Column(String)
+    is_read = Column(Boolean, default=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
     sender = relationship("User", foreign_keys=[sender_id], back_populates="sent_chats")
