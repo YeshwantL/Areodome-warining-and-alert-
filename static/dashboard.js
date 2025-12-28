@@ -1145,6 +1145,7 @@ function renderHistory(alerts) {
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
                 <span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 10px; background: ${statusColor}; color: white; text-transform: uppercase; font-weight: bold;">${status}</span>
                 <span style="font-size: 0.8rem; font-weight: 600; color: #7f8c8d;">${type}</span>
+                ${alert.transmet_status ? `<span style="font-size: 0.7rem; color: ${alert.transmet_status === 'success' ? '#27ae60' : '#e74c3c'}; font-weight: bold;">[TRANSMET: ${alert.transmet_status.toUpperCase()}]</span>` : ''}
             </div>
             ${alertContent}
             ${replyHtml}
