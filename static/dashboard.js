@@ -1,5 +1,5 @@
 let currentUser = null;
-let audioEnabled = false;
+let audioEnabled = localStorage.getItem('audio_enabled') === 'true';
 let audioContext = null;
 // Audio State
 const ALARM_DURATION_MS = 60000; // 1 minute
@@ -710,6 +710,7 @@ if (currentUser && currentUser.role === 'mwo_admin') {
 
 function toggleAudio() {
     audioEnabled = !audioEnabled;
+    localStorage.setItem('audio_enabled', audioEnabled);
     const btn = document.getElementById('audio-btn');
     btn.innerText = audioEnabled ? "Disable Audio" : "Enable Audio";
     btn.style.backgroundColor = audioEnabled ? "#dc3545" : "#0055a5";
