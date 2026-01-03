@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Any
 from datetime import datetime
-from models import UserRole, AlertStatus, TransmetStatus
+from models import UserRole, AlertStatus, TransmetStatus, FtpStatus
 
 class Token(BaseModel):
     access_token: str
@@ -51,6 +51,10 @@ class Alert(AlertBase):
     admin_reply: Optional[str] = None
     transmet_status: Optional[TransmetStatus] = None
     transmet_response: Optional[str] = None
+    
+    serial_number: Optional[int] = None
+    ftp_status: Optional[FtpStatus] = None
+    ftp_response: Optional[str] = None
     
     class Config:
         from_attributes = True
