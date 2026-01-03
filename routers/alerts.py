@@ -237,9 +237,9 @@ async def download_history(
             output.write(f"    STATUS: {alert.status.value.upper()}\n")
             
             if alert.final_warning_text:
-                output.write(f"    WARNING TEXT:\n    {alert.final_warning_text}\n")
+                output.write(f"    WARNING MESSAGE:\n    {alert.final_warning_text}\n")
             elif alert.content and 'generated_text' in alert.content:
-                output.write(f"    PREVIEW TEXT:\n    {alert.content['generated_text']}\n")
+                output.write(f"    WARNING MESSAGE:\n    {alert.content['generated_text']}\n")
             else:
                 # Handle dictionary representation
                 content_str = str(alert.content)
