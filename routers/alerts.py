@@ -1,9 +1,10 @@
 import sys
 import os
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy.sql import func
 
 # Allow standalone execution
@@ -12,6 +13,53 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import database, models, schemas, auth
 import transmet
 from models import TransmetStatus
+
+def format_aviation_warning(alert):
+    """
+    Generates standard aviation warning string:
+    VAKP 031200 AD WRNG 1 VALID 031200/031800 SFC WSPD 17KT MAX27 FROM 292 DEG FCST NC=
+    """
+    try:
+        # 0. Prefer pre-generated text from frontend if available (Exact Match)
+        if alert.content and isinstance(alert.content, dict) and alert.content.get("generated_text"):
+            return alert.content.get("generated_text")
+
+        # 1. Station and Time
+        station = alert.sender.airport_code or "XXXX"
+        dt = alert.created_at
+        ddhhmm = dt.strftime("%d%H%M")
+        
+        # 2. Serial Number
+        serial = alert.serial_number or "X"
+        
+        # 3. Validity (Default 4 hours if not in content)
+        valid_from = dt
+        valid_to = dt + timedelta(hours=4) # Default
+        valid_str = f"{valid_from.strftime('%d%H%M')}/{valid_to.strftime('%d%H%M')}"
+        
+        # 4. Met Details
+        content_parts = []
+        if alert.content:
+            if alert.type == "Wind":
+                speed = alert.content.get('speed')
+                gust = alert.content.get('gust')
+                direction = alert.content.get('direction')
+                
+                if speed: content_parts.append(f"SFC WSPD {speed}KT")
+                if gust: content_parts.append(f"MAX{gust}")
+                if direction: content_parts.append(f"FROM {direction} DEG")
+            elif alert.type == "Thunderstorm":
+                content_parts.append("TS")
+        
+        details = " ".join(content_parts)
+        # Ensure the aviation format always starts with the station/time and prepend WWIN81 if missing
+        raw_format = f"{station} {ddhhmm} AD WRNG {serial} VALID {valid_str} {details} FCST NC="
+        if not raw_format.startswith("WWIN81"):
+            return f"WWIN81 {raw_format}"
+        return raw_format
+        
+    except Exception as e:
+        return f"Error generating format: {str(e)}"
 
 router = APIRouter(
     prefix="/alerts",
@@ -99,8 +147,13 @@ async def finalize_alert(
         # Determine status
         alert.ftp_status = models.FtpStatus.PENDING
         
+        # Header: WWIN81 <StationCode> <DDHHMM>
+        ddhhmm = alert.finalized_at.strftime("%d%H%M")
+        header = f"WWIN81 {station_code} {ddhhmm}"
+        file_content = f"{header}\n{alert.final_warning_text}"
+        
         # Send
-        result = ftp_client.send_to_ftp(alert.final_warning_text, filename)
+        result = ftp_client.send_to_ftp(file_content, filename)
         
         if result["status"] == "success":
              alert.ftp_status = models.FtpStatus.SUCCESS
@@ -205,9 +258,44 @@ async def transmit_alert(
     if not alert.final_warning_text:
          raise HTTPException(status_code=400, detail="Final warning text is missing")
 
-    # Send to TRANSMET
-    result = transmet.send_to_transmet(alert.final_warning_text)
-    
+    # Initialize result for safety
+    result = {"status": "failure", "response": "Transmission not attempted"}
+        
+    # Generate .a file for passed warnings
+    try:
+        station_code = alert.sender.airport_code or "XXXX"
+        dt = alert.finalized_at or datetime.utcnow()
+        ddhhmm = dt.strftime("%d%H%M")
+        header_line = f"WWIN81 {station_code} {ddhhmm}"
+        
+        # Avoid duplicating the header if it's already in the final_warning_text
+        body = alert.final_warning_text
+        if body.startswith(header_line):
+            file_content = body
+        else:
+            file_content = f"{header_line}\n{body}"
+        
+        # Socket transmission content must match the file content
+        transmet_payload = file_content
+        
+        # Actually send the FULL formatted content to Socket
+        result = transmet.send_to_transmet(transmet_payload)
+        
+        # Filename: WWIN81<StationCode><DDHHMM>.a
+        filename_base = f"WWIN81{station_code}{ddhhmm}.a"
+        file_path = os.path.join("transmitted_warnings", filename_base)
+        
+        # Ensure dir exists (redundant if mkdir run, but safe)
+        os.makedirs("transmitted_warnings", exist_ok=True)
+        
+        with open(file_path, "w") as f:
+            f.write(file_content)
+            
+    except Exception as e:
+        print(f"Error during dissemination: {e}")
+        # Non-blocking error, result keeps its status
+
+        
     if result["status"] == "success":
         alert.transmet_status = TransmetStatus.SUCCESS
         alert.transmet_response = result["response"]
@@ -219,6 +307,8 @@ async def transmit_alert(
     db.refresh(alert)
     return alert
 
+
+
 @router.get("/history/download")
 async def download_history(
     start_date: Optional[str] = None, # YYYY-MM-DD
@@ -227,122 +317,164 @@ async def download_history(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_active_user)
 ):
-    from fastapi.responses import StreamingResponse
     import io
+    
+    try:
+        query = db.query(models.Alert).join(models.User, models.Alert.sender_id == models.User.id)
 
-    query = db.query(models.Alert).join(models.User, models.Alert.sender_id == models.User.id)
+        # 1. Access Control
+        if current_user.role == models.UserRole.REGIONAL:
+            query = query.filter(models.Alert.sender_id == current_user.id)
+        elif current_user.role == models.UserRole.MWO_ADMIN:
+            if airport_code:
+                query = query.filter(models.User.airport_code == airport_code)
 
-    # 1. Access Control
-    if current_user.role == models.UserRole.REGIONAL:
-        query = query.filter(models.Alert.sender_id == current_user.id)
-    elif current_user.role == models.UserRole.MWO_ADMIN:
+        # 2. Date Range Filtering
+        if start_date:
+            try:
+                sd = datetime.strptime(start_date, "%Y-%m-%d")
+                query = query.filter(models.Alert.created_at >= sd)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date format")
+        if end_date:
+            try:
+                ed = datetime.strptime(end_date, "%Y-%m-%d")
+                # Set to end of day
+                ed = ed.replace(hour=23, minute=59, second=59)
+                query = query.filter(models.Alert.created_at <= ed)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date format")
+
+        alerts = query.order_by(models.Alert.created_at.desc()).all()
+
+        # 3. Generate Text Content
+        output = io.StringIO()
+
+        if not alerts:
+            output.write("NO FINALIZED ALERTS FOUND FOR SELECTION\n")
+        else:
+            for alert in alerts:
+                message = format_aviation_warning(alert)
+                output.write(f"{message}\n\n")
+
+        output.seek(0)
+        
+        # 4. Filename Standardization
+        time_str = datetime.now().strftime('%Y%m%d_%H%M%S')
         if airport_code:
+            filename = f"WWIN81{airport_code}_{time_str}.txt"
+        else:
+            filename = f"WWIN81_HISTORY_{time_str}.txt"
+            
+        return StreamingResponse(
+            io.BytesIO(output.getvalue().encode('utf-8')),
+            media_type="text/plain",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
+
+@router.get("/history/download/bulk_a")
+async def download_history_bulk_a(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    airport_code: Optional[str] = None,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_active_user)
+):
+    import zipfile
+    import io
+    
+    try:
+        query = db.query(models.Alert).join(models.User, models.Alert.sender_id == models.User.id)
+        query = query.filter(models.Alert.status == models.AlertStatus.FINALIZED)
+
+        if current_user.role == models.UserRole.REGIONAL:
+            query = query.filter(models.Alert.sender_id == current_user.id)
+        elif current_user.role == models.UserRole.MWO_ADMIN and airport_code:
             query = query.filter(models.User.airport_code == airport_code)
 
-    # 2. Date Range Filtering
-    if start_date:
-        try:
-            sd = datetime.strptime(start_date, "%Y-%m-%d")
-            query = query.filter(models.Alert.created_at >= sd)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid start_date format")
-    if end_date:
-        try:
-            ed = datetime.strptime(end_date, "%Y-%m-%d")
-            # Set to end of day
-            ed = ed.replace(hour=23, minute=59, second=59)
-            query = query.filter(models.Alert.created_at <= ed)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid end_date format")
+        if start_date:
+            try:
+                sd = datetime.strptime(start_date, "%Y-%m-%d")
+                query = query.filter(models.Alert.created_at >= sd)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date")
+        if end_date:
+            try:
+                ed = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+                query = query.filter(models.Alert.created_at <= ed)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date")
 
-    alerts = query.order_by(models.Alert.created_at.desc()).all()
+        alerts = query.order_by(models.Alert.created_at.desc()).all()
+        if not alerts:
+            raise HTTPException(status_code=404, detail="No finalized alerts found for selection")
 
-    # 3. Generate Text Content
-    output = io.StringIO()
-    output.write(f"--- AERODROME WARNING HISTORY REPORT ---\n")
-    output.write(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-    output.write(f"Period: {start_date or 'Start'} to {end_date or 'End'}\n")
-    output.write(f"Airport Filter: {airport_code or 'All'}\n")
-    output.write("-" * 50 + "\n\n")
-
-    def format_aviation_warning(alert):
-        """
-        Generates standard aviation warning string:
-        VAKP 031200 AD WRNG 1 VALID 031200/031800 SFC WSPD 17KT MAX27 FROM 292 DEG FCST NC=
-        """
-        try:
-            # 1. Station and Time
-            station = alert.sender.airport_code or "XXXX"
-            dt = alert.created_at
-            ddhhmm = dt.strftime("%d%H%M")
-            
-            # 2. Serial Number
-            serial = alert.serial_number or "X"
-            
-            # 3. Validity (Default 4 hours if not in content)
-            valid_from = dt
-            valid_to = dt + timedelta(hours=4) # Default
-            # Check content for validity duration? For now default.
-            valid_str = f"{valid_from.strftime('%d%H%M')}/{valid_to.strftime('%d%H%M')}"
-            
-            # 4. Met Details
-            content_parts = []
-            if alert.content:
-                if alert.type == "Wind":
-                    speed = alert.content.get('speed')
-                    gust = alert.content.get('gust')
-                    direction = alert.content.get('direction')
-                    
-                    if speed: content_parts.append(f"SFC WSPD {speed}KT")
-                    if gust: content_parts.append(f"MAX{gust}") # Image shows MAX27 (no KT?) Image says MAX27. Let's assume.
-                    if direction: content_parts.append(f"FROM {direction} DEG")
-                elif alert.type == "Thunderstorm":
-                    content_parts.append("TS")
-                    # Add other TS details if available
-            
-            details = " ".join(content_parts)
-            
-            return f"{station} {ddhhmm} AD WRNG {serial} VALID {valid_str} {details} FCST NC="
-            
-        except Exception:
-            return "Error generating format"
-
-    if not alerts:
-        output.write("No alerts found for the selected criteria.\n")
-    else:
-        for idx, alert in enumerate(alerts, 1):
-            airport = alert.sender.airport_code or "Unknown"
-            timestamp = alert.created_at.strftime('%Y-%m-%d %H:%M:%S')
-            
-            output.write(f"[{idx}] STATION: {airport}\n")
-            output.write(f"    TIME: {timestamp}\n")
-            output.write(f"    TYPE: {alert.type.upper()}\n")
-            output.write(f"    STATUS: {alert.status.value.upper()}\n")
-            
-            # Always use the standardized aviation format for the report
-            message = format_aviation_warning(alert)
-            output.write(f"    WARNING TEXT:\n    {message}\n")
-            
-            # If there was a manual final text that differs significantly, we could append it,
-            # but the user specifically requested the "proper" format (constructed).
-            
-            # (Optional: If existing final text is not just "okk" or similar, maybe strictly we should keep it,
-            # but for this request, strict format is priority).
-            if alert.final_warning_text and alert.final_warning_text != message:
-                # Check if it looks like a manual note
-                if len(alert.final_warning_text) < 20 or "valid" not in alert.final_warning_text.lower():
-                     output.write(f"    OPERATOR NOTE: {alert.final_warning_text}\n")
+        # Create ZIP in memory
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+            for alert in alerts:
+                station_code = alert.sender.airport_code or "XXXX"
+                dt = alert.finalized_at or alert.created_at
+                ddhhmm = dt.strftime("%d%H%M")
                 
-            if alert.admin_reply:
-                output.write(f"    ADMIN REPLY: {alert.admin_reply}\n")
+                # Filename: WWIN81<Station><DDHHMM>_<ID>.a to avoid duplicate names in zip
+                filename = f"WWIN81{station_code}{ddhhmm}_{alert.id}.a"
+                header_line = f"WWIN81 {station_code} {ddhhmm}"
                 
-            output.write("-" * 30 + "\n")
+                body = alert.final_warning_text or ""
+                if not body.startswith("WWIN81"):
+                    content = f"{header_line}\n{body}"
+                else:
+                    content = body
+                
+                zip_file.writestr(filename, content)
 
-    output.seek(0)
-    
-    filename = f"alert_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-    return StreamingResponse(
-        io.BytesIO(output.getvalue().encode('utf-8')),
-        media_type="text/plain",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+        zip_buffer.seek(0)
+        zip_filename = f"alerts_bulk_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={zip_filename}"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Bulk download failed: {str(e)}")
+
+@router.get("/{alert_id}/download")
+async def download_alert(
+    alert_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_active_user)
+):
+    try:
+        alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
+        if not alert or alert.status != models.AlertStatus.FINALIZED:
+            raise HTTPException(status_code=404, detail="Finalized alert not found")
+            
+        station_code = alert.sender.airport_code or "XXXX"
+        dt = alert.finalized_at or datetime.utcnow()
+        ddhhmm = dt.strftime("%d%H%M")
+        header_line = f"WWIN81 {station_code} {ddhhmm}"
+        
+        filename = f"WWIN81{station_code}{ddhhmm}.a"
+        body = alert.final_warning_text
+        if body.startswith(header_line):
+            content = body
+        else:
+            content = f"{header_line}\n{body}"
+        
+        return Response(
+            content=content,
+            media_type="text/plain",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")

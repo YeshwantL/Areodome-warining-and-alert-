@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 import models, database, tasks
-from routers import auth, alerts, chat, pages, admin, prediction
+from routers import authentication as auth, alerts, chat, pages, admin, prediction
 
 models.Base.metadata.create_all(bind=database.engine)
 

@@ -9,7 +9,11 @@ def parse_metar(metar_str):
     try:
         # 1. Extract station (e.g., VABB)
         station_match = re.search(r'^([A-Z]{4})', metar_str)
-        station = station_match.group(1) if station_match else "Unknown"
+        if not station_match:
+             # Try finding 4-letter code in the first 10 chars if METAR prefix exists
+             station_match = re.search(r'\b([A-Z]{4})\b', metar_str[:15])
+        
+        station = station_match.group(1) if station_match else "XXXX"
 
         # 2. Extract Timestamp (e.g., 201030Z -> Day 20, 10:30 UTC)
         time_match = re.search(r'(\d{2})(\d{2})(\d{2})Z', metar_str)
@@ -41,11 +45,31 @@ def parse_metar(metar_str):
                 speed = speed * 0.539957
                 gust = gust * 0.539957
             
+            # 4. Extract Temperature (e.g., 32/24)
+            temp_match = re.search(r' (M?\d{2})/(M?\d{2}) ', metar_str)
+            temperature = None
+            if temp_match:
+                t_str = temp_match.group(1)
+                temperature = int(t_str.replace('M', '-'))
+            
+            # 5. Extract Altimeter (e.g., Q1012 or A2992)
+            alt_match = re.search(r' ([QA])(\d{4})', metar_str)
+            altimeter = None
+            if alt_match:
+                alt_val = int(alt_match.group(2))
+                if alt_match.group(1) == 'A': # Inches of Mercury -> hPa
+                    altimeter = round(alt_val * 0.338639, 1)
+                else: # QNH in hPa
+                    altimeter = alt_val
+
             return {
+                "station": station,
                 "original": metar_str,
                 "wind_speed": round(speed, 2),
                 "wind_gust": round(gust, 2),
                 "wind_dir": direction,
+                "temperature": temperature,
+                "altimeter": altimeter,
                 "unit": actual_unit,
                 "timestamp_str": time_match.group(0) if time_match else "",
                 "timestamp_obj": timestamp_str or datetime.now().strftime("%Y-%m-%d %H:%M:%S")

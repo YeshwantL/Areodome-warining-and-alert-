@@ -1,4 +1,8 @@
 let currentUser = null;
+// Force default enabled if not set
+if (localStorage.getItem('audio_enabled') === null) {
+    localStorage.setItem('audio_enabled', 'true');
+}
 let audioEnabled = localStorage.getItem('audio_enabled') !== 'false';
 let audioContext = null;
 // Audio State
@@ -133,6 +137,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
     }
+
+    // Update audio button state
+    const abtn = document.getElementById('audio-btn');
+    if (abtn) {
+        abtn.innerText = audioEnabled ? "Disable Audio" : "Enable Audio";
+        abtn.style.backgroundColor = audioEnabled ? "#dc3545" : "#0055a5";
+    }
 });
 
 function initPreview() {
@@ -203,10 +214,11 @@ function updatePreview() {
     }
 
     // Update Textarea Value
-    // We update it unless user is typing IN IT? 
-    // Requirement is editable preview.
-    // For now always overwrite. 
-    document.getElementById('alert-preview').value = text.toUpperCase();
+    let finalText = text.toUpperCase();
+    if (!finalText.startsWith("WWIN81")) {
+        finalText = "WWIN81 " + finalText;
+    }
+    document.getElementById('alert-preview').value = finalText;
 }
 
 function toggleAlertFields() {
@@ -382,8 +394,9 @@ function renderAlerts(alerts) {
             ${alert.transmet_status ? `<div style="margin-top: 5px; font-weight: bold; color: ${alert.transmet_status === 'success' ? 'green' : 'red'};">TRANSMET: ${alert.transmet_status.toUpperCase()}</div>` : ''}
             ${replyHtml}
             ${currentUser && currentUser.role === 'mwo_admin' ? `<div style="margin-top: 5px;">
-                ${alert.status === 'active' ? `<button onclick="finalizeAlert(${alert.id})">Finalize</button>` : ''}
-                ${alert.status === 'finalized' ? `<button onclick="transmitAlert(${alert.id})" style="background-color: #6610f2;">Transmit to TRANSMET</button>` : ''}
+                ${alert.status.toLowerCase() === 'active' ? `<button onclick="finalizeAlert(${alert.id})">Finalize</button>` : ''}
+                ${alert.status.toLowerCase() === 'finalized' ? `<button onclick="transmitAlert(${alert.id})" style="background-color: #6610f2;">Transmit to TRANSMET</button>` : ''}
+                ${alert.status.toLowerCase() === 'finalized' ? `<button onclick="downloadSingleAlert(${alert.id})" style="background-color: #27ae60; font-weight: bold;">Download .a</button>` : ''}
                 <button onclick="toggleReplyInput(${alert.id})" style="background-color: #008CBA;">Reply</button>
                 <div id="reply-container-${alert.id}" class="reply-input-container" style="display: ${openReplyBoxes.has(alert.id) ? 'flex' : 'none'};">
                     <input type="text" id="reply-input-${alert.id}" placeholder="Enter reply..." 
@@ -405,9 +418,13 @@ async function finalizeAlert(id) {
     if (!warning) return;
 
     try {
-        const response = await fetch(`/alerts/${id}/finalize?warning_text=${encodeURIComponent(warning)}`, {
+        const response = await fetch(`/alerts/${id}/finalize`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ warning_text: warning })
         });
 
         if (response.ok) {
@@ -694,12 +711,8 @@ async function loadAirportList() {
     }
 }
 
-// Set initial audio button state
-const audioBtn = document.getElementById('audio-btn');
-if (audioBtn) {
-    audioBtn.innerText = audioEnabled ? "Disable Audio" : "Enable Audio";
-    audioBtn.style.backgroundColor = audioEnabled ? "#dc3545" : "#0055a5";
-}
+// Initial audio button state is set in HTML, updated by logic if needed
+
 
 if (currentUser && currentUser.role === 'mwo_admin') {
     const adminControls = document.getElementById('admin-controls');
@@ -919,6 +932,19 @@ async function fetchPrediction(stationCode) {
 
 function renderPrediction(data) {
     const display = document.getElementById('forecast-display');
+
+    // Check for explicit data availability flag from backend
+    if (data && data.data_available === false) {
+        display.innerHTML = `
+            <div style="padding: 15px; background: #fff3f3; border: 1px solid #ffcdd2; border-radius: 4px; color: #b71c1c;">
+                <p style="margin: 0; font-weight: bold;">Live Weather Unavailable</p>
+                <p style="margin: 5px 0 0 0; font-size: 0.9em;">${data.message || 'Source data is currently missing from the network.'}</p>
+                <p style="margin: 10px 0 0 0; font-size: 0.8em; color: #d32f2f;">Predictions will resume automatically once the station starts reporting again.</p>
+            </div>
+        `;
+        return;
+    }
+
     if (!data || !data.forecast) {
         display.innerHTML = `<p>No prediction available.</p>`;
         return;
@@ -1084,8 +1110,102 @@ async function downloadHistory() {
             a.remove();
             window.URL.revokeObjectURL(downloadUrl);
         } else {
-            const err = await response.json();
-            alert(`Download failed: ${err.detail || 'Unknown error'}`);
+            let errorMsg = 'Unknown error';
+            try {
+                const err = await response.json();
+                errorMsg = err.detail || 'Unknown error';
+                if (typeof errorMsg === 'object') errorMsg = JSON.stringify(errorMsg);
+            } catch (jsonErr) {
+                // If not JSON, use status text
+                errorMsg = response.statusText || 'Server error';
+            }
+            alert(`Download failed: ${errorMsg}`);
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Network error during download");
+    }
+}
+
+async function downloadHistoryBulkA() {
+    const startDate = document.getElementById('history-start-date').value;
+    const endDate = document.getElementById('history-end-date').value;
+    const airport = document.getElementById('history-airport-select').value;
+
+    let url = `/alerts/history/download/bulk_a?`;
+    if (startDate) url += `start_date=${startDate}&`;
+    if (endDate) url += `end_date=${endDate}&`;
+    if (airport) url += `airport_code=${airport}`;
+
+    try {
+        const response = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+
+        if (response.ok) {
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+
+            const contentDisp = response.headers.get('Content-Disposition');
+            let filename = `alerts_bulk_${new Date().toISOString().split('T')[0]}.zip`;
+            if (contentDisp && contentDisp.indexOf('filename=') !== -1) {
+                filename = contentDisp.split('filename=')[1].replace(/"/g, '');
+            }
+
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+        } else {
+            let errorMsg = 'No finalized alerts found or server error';
+            try {
+                const err = await response.json();
+                errorMsg = err.detail || errorMsg;
+            } catch (e) { }
+            alert(`Bulk Download failed: ${errorMsg}`);
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Network error during bulk download");
+    }
+}
+
+async function downloadSingleAlert(alertId) {
+    try {
+        const response = await fetch(`/alerts/${alertId}/download`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+
+            const contentDisp = response.headers.get('Content-Disposition');
+            let filename = `WWIN81_alert_${alertId}.a`;
+            if (contentDisp && contentDisp.indexOf('filename=') !== -1) {
+                filename = contentDisp.split('filename=')[1].replace(/"/g, '');
+            }
+
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } else {
+            let errorMsg = 'Unknown error';
+            try {
+                const err = await response.json();
+                errorMsg = err.detail || 'Unknown error';
+                if (typeof errorMsg === 'object') errorMsg = JSON.stringify(errorMsg);
+            } catch (jsonErr) {
+                errorMsg = response.statusText || 'Server error';
+            }
+            alert(`Download failed: ${errorMsg}`);
         }
     } catch (e) {
         console.error(e);
@@ -1146,6 +1266,7 @@ function renderHistory(alerts) {
                 <span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 10px; background: ${statusColor}; color: white; text-transform: uppercase; font-weight: bold;">${status}</span>
                 <span style="font-size: 0.8rem; font-weight: 600; color: #7f8c8d;">${type}</span>
                 ${alert.transmet_status ? `<span style="font-size: 0.7rem; color: ${alert.transmet_status === 'success' ? '#27ae60' : '#e74c3c'}; font-weight: bold;">[TRANSMET: ${alert.transmet_status.toUpperCase()}]</span>` : ''}
+                ${alert.status.toLowerCase() === 'finalized' ? `<a href="javascript:void(0)" onclick="downloadSingleAlert(${alert.id})" style="font-size: 0.75rem; color: #27ae60; text-decoration: underline; margin-left: auto; font-weight: bold;">Download .a</a>` : ''}
             </div>
             ${alertContent}
             ${replyHtml}

@@ -1,8 +1,8 @@
 import socket
 import os
 
-TRANSMET_HOST = os.getenv("TRANSMET_HOST", "127.0.0.1")
-TRANSMET_PORT = int(os.getenv("TRANSMET_PORT", 9999))
+TRANSMET_HOST = os.getenv("TRANSMET_HOST", "192.168.101.120")
+TRANSMET_PORT = int(os.getenv("TRANSMET_PORT", 10025))
 
 def send_to_transmet(message: str) -> dict:
     """

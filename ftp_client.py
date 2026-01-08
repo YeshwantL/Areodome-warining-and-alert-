@@ -13,20 +13,21 @@ FTP_DIRECTORY = os.getenv("FTP_DIRECTORY", "/")
 def generate_filename(station_code: str, serial_number: int, timestamp: datetime) -> str:
     """
     Generates filename according to convention:
-    <StationCode>_<SerialNumber>_<Time>_<Date>.txt
-    Time format: HHMMSS
-    Date format: DDMMYYYY
+    WWIN81<StationCode><DDHHMM>.a
+    Example: WWIN81VASD260000.a
     """
-    time_str = timestamp.strftime("%H%M%S")
-    date_str = timestamp.strftime("%d%m%Y")
-    return f"{station_code}_{serial_number}_{time_str}_{date_str}.txt"
+    # DDHHMM
+    ddhhmm = timestamp.strftime("%d%H%M")
+    return f"WWIN81{station_code}{ddhhmm}.a"
 
 def send_to_ftp(content: str, filename: str) -> dict:
     """
-    Sends text content to the configured FTP server.
-    Returns a dictionary with status and response message.
+    Sends text content to the configured FTP server using atomic rename.
+    1. Uploads to filename.tmp
+    2. Renames to final filename
     """
     ftp = None
+    tmp_filename = f"{filename}.tmp"
     try:
         ftp = ftplib.FTP()
         ftp.connect(FTP_HOST, FTP_PORT, timeout=10)
@@ -36,9 +37,6 @@ def send_to_ftp(content: str, filename: str) -> dict:
             try:
                 ftp.cwd(FTP_DIRECTORY)
             except ftplib.error_perm:
-                # Directory might not exist, try to create it? 
-                # For now, let's just log error and return or fail. 
-                # Spec doesn't say we need to create it, but safer to error if path is wrong.
                 return {
                     "status": "failure", 
                     "response": f"Directory {FTP_DIRECTORY} does not exist or access denied."
@@ -47,11 +45,26 @@ def send_to_ftp(content: str, filename: str) -> dict:
         # Convert string content to BytesIO for upload
         bio = io.BytesIO(content.encode('utf-8'))
         
-        ftp.storbinary(f'STOR {filename}', bio)
+        # 1. Upload as .tmp
+        ftp.storbinary(f'STOR {tmp_filename}', bio)
+        
+        # 2. Atomic Rename to final .a filename
+        try:
+            ftp.rename(tmp_filename, filename)
+        except ftplib.all_errors as e:
+            # Cleanup tmp on rename failure
+            try:
+                ftp.delete(tmp_filename)
+            except:
+                pass
+            return {
+                "status": "failure",
+                "response": f"Rename failed: {str(e)}"
+            }
         
         return {
             "status": "success",
-            "response": "File transferred successfully"
+            "response": "File transferred successfully via atomic rename"
         }
         
     except ftplib.all_errors as e:

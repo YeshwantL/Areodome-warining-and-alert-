@@ -7,7 +7,7 @@ from datetime import datetime
 # Allow standalone execution
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fetch_data import get_latest_metar
+from fetch_data import fetch_metar_data
 from parse_metar import parse_metar
 from model import WindPredictor, load_data, save_data
 
@@ -33,28 +33,35 @@ def get_prediction(station_code: str, background_tasks: BackgroundTasks):
     station_code = station_code.upper()
     
     # 1. Fetch latest data
-    raw_metar = get_latest_metar(station_code)
-    if not raw_metar:
-        raise HTTPException(status_code=404, detail="Could not fetch data for station")
+    raw_metar = fetch_metar_data(station_code, hours=1)
     
-    # Extract line
-    lines = [l.strip() for l in raw_metar.strip().split('\n') if l.strip() and "METAR" in l]
-    if not lines:
-        lines = [l.strip() for l in raw_metar.strip().split('\n') if l.strip() and len(l.strip()) > 20]
-        
-    if not lines:
-        raise HTTPException(status_code=404, detail="No valid METAR lines found")
-        
-    latest_metar = lines[0]
-    parsed_data = parse_metar(latest_metar)
+    # Check if we have valid METAR lines
+    latest_metar = None
+    if raw_metar:
+        lines = [l.strip() for l in raw_metar.strip().split('\n') if l.strip() and ("METAR" in l or len(l.strip()) > 20)]
+        if lines:
+            latest_metar = lines[0]
+
+    parsed_data = parse_metar(latest_metar) if latest_metar else None
     
+    # 2. Predictive Fallback Logic
+    # If no live data, we check if we can provide a climatological/persistence fallback
     if not parsed_data:
-        raise HTTPException(status_code=500, detail="Failed to parse METAR")
+        # Return a response indicating live data is unavailable
+        # We can still provide a "forecast" based on dynamic climatology if we want,
+        # but let's signal the lack of live data clearly.
+        return {
+            "station": station_code,
+            "data_available": False,
+            "message": f"Live weather data for {station_code} is currently unavailable.",
+            "current": None,
+            "forecast": {}
+        }
         
-    # 2. Save data
+    # 3. Save data
     save_data(parsed_data)
     
-    # 3. Predict
+    # 4. Predict
     # Train model first (incremental or full retrain)
     refresh_model()
     
@@ -73,6 +80,7 @@ def get_prediction(station_code: str, background_tasks: BackgroundTasks):
     # 4. Format response
     response = {
         "station": station_code,
+        "data_available": True,
         "current": parsed_data,
         "forecast": {}
     }

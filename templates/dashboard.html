@@ -7,7 +7,7 @@
     <div class="dashboard-header">
         <h2 id="user-role-display">Loading...</h2>
         <div style="display: flex; gap: 10px; align-items: center;">
-            <button onclick="toggleAudio()" id="audio-btn" style="background-color: #0055a5;">Enable Audio</button>
+            <button onclick="toggleAudio()" id="audio-btn" style="background-color: #dc3545;">Disable Audio</button>
             <div id="admin-controls" style="display: none; align-items: center; gap: 10px;">
                 <button onclick="stopAlarm()" id="stop-alarm-btn"
                     style="display: none; background-color: #dc3545; animation: pulse 1s infinite;">STOP ALARM</button>
@@ -242,8 +242,12 @@
                     </div>
                     <div style="display: flex; gap: 5px;">
                         <button onclick="searchHistory()" style="background-color: #2c3e50; flex: 1;">Search</button>
-                        <button onclick="downloadHistory()" style="background-color: #27ae60; flex: 1;">Download
-                            .txt</button>
+                        <div style="display: flex; flex-direction: column; gap: 5px; flex: 1;">
+                            <button onclick="downloadHistory()" style="background-color: #27ae60;">Download
+                                .txt</button>
+                            <button onclick="downloadHistoryBulkA()" style="background-color: #27ae60;">Download
+                                .a</button>
+                        </div>
                         <button onclick="clearHistory()"
                             style="background-color: #95a5a6; padding: 0 10px;">Clear</button>
                     </div>
