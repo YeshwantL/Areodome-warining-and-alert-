@@ -31,10 +31,9 @@ def deploy_full():
             "wind_prediction.py"
         ]
         
-        # 1. Handle weather_data.csv column mismatch and cleanup old auth router
-        print("Cleaning up old files and handling CSV on server...")
+        # 1. Handle old auth router cleanup
+        print("Cleaning up old files on server...")
         client.exec_command(f"rm {project_dir}/routers/auth.py") # Prevents import shadowing
-        client.exec_command(f"mv {project_dir}/weather_data.csv {project_dir}/weather_data_old.csv")
 
         # 2. SFTP Upload
         print("Uploading ALL modified files via SFTP...")

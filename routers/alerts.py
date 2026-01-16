@@ -13,6 +13,67 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import database, models, schemas, auth
 import transmet
 from models import TransmetStatus
+import re
+
+def parse_validity_from_text(text: str) -> Optional[datetime]:
+    """
+    Parses VALID DDHHMM/DDHHMM or VALID DDHHMM from text and returns the end time as a UTC datetime.
+    Supports Z suffix, HHMM only (today default), and month rollover logic.
+    """
+    if not text:
+        return None
+        
+    # Use word boundary to avoid matching "Validated"
+    # Try Range first: VALID 160630/161030 or VALID 0630/1030
+    range_match = re.search(r'\bVALID\s+(\d{4,6})Z?\s*/\s*(\d{4,6})Z?', text, re.IGNORECASE)
+    if range_match:
+        try:
+            end_val = range_match.group(2)
+            return _parse_aviation_time(end_val)
+        except Exception:
+            return None
+
+    # Try Single: VALID 161030 or VALID 1030
+    single_match = re.search(r'\bVALID\s+(\d{4,6})Z?', text, re.IGNORECASE)
+    if single_match:
+        try:
+            end_val = single_match.group(1)
+            return _parse_aviation_time(end_val)
+        except Exception:
+            return None
+            
+    return None
+
+def _parse_aviation_time(val: str) -> Optional[datetime]:
+    if len(val) == 6:
+        # DDHHMM
+        day, hour, minute = int(val[:2]), int(val[2:4]), int(val[4:])
+        return _contextualize_expiry(day, hour, minute)
+    elif len(val) == 4:
+        # HHMM (assume today UTC)
+        now = datetime.utcnow()
+        hour, minute = int(val[:2]), int(val[2:])
+        return _contextualize_expiry(now.day, hour, minute)
+    return None
+
+def _contextualize_expiry(end_day: int, end_hour: int, end_min: int) -> datetime:
+    now = datetime.utcnow()
+    # Assume current year and month for the end time
+    expiry = now.replace(day=end_day, hour=end_hour, minute=end_min, second=0, microsecond=0)
+    
+    # Month rollover logic
+    if expiry < now - timedelta(days=15):
+        if expiry.month == 12:
+            expiry = expiry.replace(year=expiry.year + 1, month=1)
+        else:
+            expiry = expiry.replace(month=expiry.month + 1)
+    elif expiry > now + timedelta(days=15):
+        if expiry.month == 1:
+            expiry = expiry.replace(year=expiry.year - 1, month=12)
+        else:
+            expiry = expiry.replace(month=expiry.month - 1)
+            
+    return expiry
 
 def format_aviation_warning(alert):
     """
@@ -26,7 +87,7 @@ def format_aviation_warning(alert):
 
         # 1. Station and Time
         station = alert.sender.airport_code or "XXXX"
-        dt = alert.created_at
+        dt = alert.created_at or datetime.utcnow()
         ddhhmm = dt.strftime("%d%H%M")
         
         # 2. Serial Number
@@ -55,7 +116,7 @@ def format_aviation_warning(alert):
         # Ensure the aviation format always starts with the station/time and prepend WWIN81 if missing
         raw_format = f"{station} {ddhhmm} AD WRNG {serial} VALID {valid_str} {details} FCST NC="
         if not raw_format.startswith("WWIN81"):
-            return f"WWIN81 {raw_format}"
+            return f"WWIN81\n{raw_format}"
         return raw_format
         
     except Exception as e:
@@ -75,11 +136,35 @@ async def create_alert(
     if current_user.role != models.UserRole.REGIONAL:
         raise HTTPException(status_code=403, detail="Only Regional Airports can create alerts")
     
+    
+    # Parse validity from generated text if present
+    gen_text = alert.content.get('generated_text', '')
+    parsed_valid_until = parse_validity_from_text(gen_text)
+    if parsed_valid_until:
+        alert.content['valid_until_iso'] = parsed_valid_until.isoformat()
+    else:
+        # Fallback to manual date calc if parsing fails, but user wants parsing to be primary.
+        # If parsing fails, we might want to store 'INVALID' or something, 
+        # but let's see how create_alert handles valid_to.
+        valid_to_str = alert.content.get('valid_to', '')
+        if valid_to_str and len(valid_to_str) == 4:
+            now_utc = datetime.utcnow()
+            try:
+                hour = int(valid_to_str[:2])
+                minute = int(valid_to_str[2:])
+                valid_until = now_utc.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if valid_until < now_utc:
+                     valid_until += timedelta(days=1)
+                alert.content['valid_until_iso'] = valid_until.isoformat()
+            except ValueError:
+                pass
+
     new_alert = models.Alert(
         sender_id=current_user.id,
         type=alert.type,
         content=alert.content,
-        status=models.AlertStatus.ACTIVE
+        status=models.AlertStatus.ACTIVE,
+        created_at=datetime.utcnow() # Explicit UTC
     )
     db.add(new_alert)
     db.commit()
@@ -95,12 +180,42 @@ async def get_active_alerts(
     # Requirement: "Regional Airport: Cannot see other airports."
     # So Regional sees own active alerts. Admin sees all.
     
-    query = db.query(models.Alert).filter(models.Alert.status == models.AlertStatus.ACTIVE)
+    # Filter by Expiry
+    # We need to fetch into python to parse the JSON content field or use a custom filter if supported DB wise.
+    # JSON filtering in SQLite/Postgres varies. Python filtering is safer for now given low volume.
+    
+    query = db.query(models.Alert).filter(
+        models.Alert.status.in_([models.AlertStatus.ACTIVE, models.AlertStatus.FINALIZED])
+    )
     
     if current_user.role == models.UserRole.REGIONAL:
         query = query.filter(models.Alert.sender_id == current_user.id)
         
-    return query.all()
+    all_active = query.all()
+    
+    valid_alerts = []
+    now_utc = datetime.utcnow()
+    
+    for alert in all_active:
+        # Check expiry
+        if alert.content and isinstance(alert.content, dict):
+            valid_until_iso = alert.content.get('valid_until_iso')
+            if valid_until_iso:
+                try:
+                    valid_until = datetime.fromisoformat(valid_until_iso)
+                    # If expired, mark as ARCHIVED/FINALIZED? 
+                    # User said: "automatically removed or marked inactive once validity period expires."
+                    # We will filter it out from display. Opt: Update status in DB for cleanup.
+                    if now_utc > valid_until:
+                        # Auto-expire
+                        # alert.status = models.AlertStatus.ARCHIVED # Optimistic update?
+                        # db.commit() # Side effect in GET? safer to just filter for view.
+                        continue
+                except ValueError:
+                    pass
+        valid_alerts.append(alert)
+        
+    return valid_alerts
 
 import ftp_client
 
@@ -138,33 +253,54 @@ async def finalize_alert(
     db.commit()
     db.refresh(alert)
     
-    # 3. Transmit to FTP
+    # 3. Transmit to FTP and Airport System (Transmet)
     try:
-        # User <StationCode> from sender's airport_code
         station_code = alert.sender.airport_code or "UNKNOWN"
         filename = ftp_client.generate_filename(station_code, next_serial, alert.finalized_at)
+
+        # Prepare content
+        # Ensure WWIN81 is on its own line
+        body = alert.final_warning_text
+        if body.startswith("WWIN81"):
+            if "\n" not in body[:10]: # If it's WWIN81 VASD... instead of WWIN81\nVASD...
+                file_content = body.replace("WWIN81 ", "WWIN81\n", 1)
+            else:
+                file_content = body
+        else:
+            file_content = f"WWIN81\n{body}"
         
-        # Determine status
+        # A. Delivery via FTP
         alert.ftp_status = models.FtpStatus.PENDING
+        ftp_result = ftp_client.send_to_ftp(file_content, filename)
         
-        # Header: WWIN81 <StationCode> <DDHHMM>
-        ddhhmm = alert.finalized_at.strftime("%d%H%M")
-        header = f"WWIN81 {station_code} {ddhhmm}"
-        file_content = f"{header}\n{alert.final_warning_text}"
-        
-        # Send
-        result = ftp_client.send_to_ftp(file_content, filename)
-        
-        if result["status"] == "success":
+        if ftp_result["status"] == "success":
              alert.ftp_status = models.FtpStatus.SUCCESS
         else:
              alert.ftp_status = models.FtpStatus.FAILURE
-             
-        alert.ftp_response = result["response"]
+        alert.ftp_response = ftp_result["response"]
+
+        # B. Delivery to Airport System (Transmet/Socket)
+        alert.transmet_status = models.TransmetStatus.PENDING
+        transmet_result = transmet.send_to_transmet(file_content)
         
+        if transmet_result["status"] == "success":
+            alert.transmet_status = models.TransmetStatus.SUCCESS
+        else:
+            alert.transmet_status = models.TransmetStatus.FAILURE
+        alert.transmet_response = transmet_result["response"]
+
+        # C. Local backup (optional but good for audit)
+        os.makedirs("transmitted_warnings", exist_ok=True)
+        local_path = os.path.join("transmitted_warnings", filename)
+        with open(local_path, "w") as f:
+            f.write(file_content)
+             
     except Exception as e:
-        alert.ftp_status = models.FtpStatus.FAILURE
-        alert.ftp_response = f"Internal Error: {str(e)}"
+        if not alert.ftp_status: alert.ftp_status = models.FtpStatus.FAILURE
+        if not alert.transmet_status: alert.transmet_status = models.TransmetStatus.FAILURE
+        error_msg = f"Delivery Error: {str(e)}"
+        alert.ftp_response = alert.ftp_response or error_msg
+        alert.transmet_response = alert.transmet_response or error_msg
     
     db.commit()
     db.refresh(alert)
@@ -185,6 +321,83 @@ async def reply_alert(
         raise HTTPException(status_code=404, detail="Alert not found")
     
     alert.admin_reply = reply_text
+    db.commit()
+    db.refresh(alert)
+    return alert
+
+    return alert
+
+# NEW ENDPOINTS FOR EDIT / CONFIRM
+
+@router.post("/{alert_id}/edit", response_model=schemas.Alert)
+async def update_alert_text(
+    alert_id: int,
+    data: schemas.AlertFinalize, # Reusing simple text wrapper
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_active_user)
+):
+    if current_user.role != models.UserRole.MWO_ADMIN:
+        raise HTTPException(status_code=403, detail="Only MWO Admin can edit alerts")
+        
+    alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+        
+    # Re-parse validity whenever text is edited
+    parsed_valid_until = parse_validity_from_text(data.warning_text)
+    
+    # Update text
+    alert.final_warning_text = data.warning_text
+    
+    # Also update content generated text to stay in sync?
+    if alert.content and isinstance(alert.content, dict):
+        new_content = alert.content.copy()
+        new_content['generated_text'] = data.warning_text
+        if parsed_valid_until:
+             new_content['valid_until_iso'] = parsed_valid_until.isoformat()
+        else:
+             # If parsing fails on edit, we might want to clear it? 
+             # Or mark it invalid. Let's clear it so UI shows "Invalid"
+             new_content['valid_until_iso'] = None
+        alert.content = new_content
+        
+    db.commit()
+    db.refresh(alert)
+    return alert
+
+@router.post("/{alert_id}/confirm", response_model=schemas.Alert)
+async def confirm_alert(
+    alert_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_active_user)
+):
+    if current_user.role != models.UserRole.MWO_ADMIN:
+        raise HTTPException(status_code=403, detail="Only MWO Admin can confirm alerts")
+    
+    alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    # If first time confirming/finalizing, generate serial number?
+    if not alert.finalized_at:
+        alert.finalized_at = datetime.utcnow()
+        # Generate Serial
+        max_serial = db.query(func.max(models.Alert.serial_number)).filter(
+            models.Alert.sender_id == alert.sender_id
+        ).scalar() or 0
+        alert.serial_number = max_serial + 1
+        
+    # Re-parse validity from currently confirmed text just in case
+    current_text = alert.final_warning_text or (alert.content.get('generated_text') if alert.content else None)
+    parsed_valid_until = parse_validity_from_text(current_text)
+    if parsed_valid_until and alert.content:
+        new_content = alert.content.copy()
+        new_content['valid_until_iso'] = parsed_valid_until.isoformat()
+        alert.content = new_content
+        
+    # Set status to FINALIZED so it is locked, but it will still show in active list until expiry
+    alert.status = models.AlertStatus.FINALIZED
+    
     db.commit()
     db.refresh(alert)
     return alert
@@ -252,28 +465,30 @@ async def transmit_alert(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     
-    if alert.status != models.AlertStatus.FINALIZED:
-        raise HTTPException(status_code=400, detail="Only finalized alerts can be transmitted")
-    
     if not alert.final_warning_text:
          raise HTTPException(status_code=400, detail="Final warning text is missing")
-
+    
+    # Check if confirmed (finalized_at set) OR if we allow transmitting unconfirmed?
+    # User requirement: "Only current version... warning must be sent"
+    # Logic: If it has text, we can transmit. It keeps status same.
+    
     # Initialize result for safety
     result = {"status": "failure", "response": "Transmission not attempted"}
         
     # Generate .a file for passed warnings
     try:
-        station_code = alert.sender.airport_code or "XXXX"
-        dt = alert.finalized_at or datetime.utcnow()
-        ddhhmm = dt.strftime("%d%H%M")
-        header_line = f"WWIN81 {station_code} {ddhhmm}"
-        
-        # Avoid duplicating the header if it's already in the final_warning_text
+        # Prepare content
         body = alert.final_warning_text
-        if body.startswith(header_line):
-            file_content = body
+        if body.startswith("WWIN81"):
+            if "\n" not in body[:10]:
+                file_content = body.replace("WWIN81 ", "WWIN81\n", 1)
+            else:
+                file_content = body
         else:
-            file_content = f"{header_line}\n{body}"
+            station_code = alert.sender.airport_code or "XXXX"
+            dt = alert.finalized_at or datetime.utcnow()
+            ddhhmm = dt.strftime("%d%H%M")
+            file_content = f"WWIN81\n{station_code} {ddhhmm}\n{body}"
         
         # Socket transmission content must match the file content
         transmet_payload = file_content
@@ -282,6 +497,9 @@ async def transmit_alert(
         result = transmet.send_to_transmet(transmet_payload)
         
         # Filename: WWIN81<StationCode><DDHHMM>.a
+        station_code = alert.sender.airport_code or "XXXX"
+        dt = alert.finalized_at or datetime.utcnow()
+        ddhhmm = dt.strftime("%d%H%M")
         filename_base = f"WWIN81{station_code}{ddhhmm}.a"
         file_path = os.path.join("transmitted_warnings", filename_base)
         
@@ -424,10 +642,14 @@ async def download_history_bulk_a(
                 header_line = f"WWIN81 {station_code} {ddhhmm}"
                 
                 body = alert.final_warning_text or ""
-                if not body.startswith("WWIN81"):
-                    content = f"{header_line}\n{body}"
+                if body.startswith("WWIN81"):
+                    if "\n" not in body[:10]:
+                        content = body.replace("WWIN81 ", "WWIN81\n", 1)
+                    else:
+                        content = body
                 else:
-                    content = body
+                    header_line = f"WWIN81\n{station_code} {ddhhmm}"
+                    content = f"{header_line}\n{body}"
                 
                 zip_file.writestr(filename, content)
 
@@ -462,10 +684,13 @@ async def download_alert(
         
         filename = f"WWIN81{station_code}{ddhhmm}.a"
         body = alert.final_warning_text
-        if body.startswith(header_line):
-            content = body
+        if body.startswith("WWIN81"):
+            if "\n" not in body[:10]:
+                content = body.replace("WWIN81 ", "WWIN81\n", 1)
+            else:
+                content = body
         else:
-            content = f"{header_line}\n{body}"
+            content = f"WWIN81\n{header_line}\n{body}"
         
         return Response(
             content=content,

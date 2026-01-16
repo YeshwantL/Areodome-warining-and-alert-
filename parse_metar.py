@@ -1,19 +1,18 @@
 import re
 from datetime import datetime
 
-def parse_metar(metar_str):
+def parse_metar(metar_str, expected_station=None):
     """
     Simpler METAR parser to extract wind speed, direction, and timestamp.
     Example: VABB 201030Z 28005KT 5000 HZ FEW025 32/24 Q1012 NOSIG
     """
     try:
         # 1. Extract station (e.g., VABB)
-        station_match = re.search(r'^([A-Z]{4})', metar_str)
-        if not station_match:
-             # Try finding 4-letter code in the first 10 chars if METAR prefix exists
-             station_match = re.search(r'\b([A-Z]{4})\b', metar_str[:15])
-        
-        station = station_match.group(1) if station_match else "XXXX"
+        # Look for 4-letter airport code (standard ICAO) in the first 30 chars
+        station = expected_station
+        if not station:
+            station_match = re.search(r'\b([A-Z]{4})\b', metar_str[:30])
+            station = station_match.group(1) if station_match else "XXXX"
 
         # 2. Extract Timestamp (e.g., 201030Z -> Day 20, 10:30 UTC)
         time_match = re.search(r'(\d{2})(\d{2})(\d{2})Z', metar_str)

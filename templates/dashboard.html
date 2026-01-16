@@ -259,6 +259,26 @@
             </div>
         </div>
     </div>
+
+    <!-- Edit Alert Modal -->
+    <div id="edit-alert-modal"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div
+            style="background: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 500px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <h3 style="margin-top: 0;">Edit Warning Message</h3>
+            <p style="font-size: 0.9em; color: #666; margin-bottom: 10px;">Modify the warning text below. Changes will
+                be saved but not transmitted until you click 'Transmet'.</p>
+            <textarea id="edit-alert-textarea"
+                style="width: 100%; height: 150px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; resize: vertical; margin-bottom: 15px; font-family: monospace;"></textarea>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button onclick="closeEditModal()"
+                    style="background: #6c757d; border: none; padding: 8px 16px; color: white; border-radius: 4px; cursor: pointer;">Cancel</button>
+                <button onclick="saveEditedAlert()"
+                    style="background: #007bff; border: none; padding: 8px 16px; color: white; border-radius: 4px; cursor: pointer;">Save
+                    Changes</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script src="/static/dashboard.js"></script>

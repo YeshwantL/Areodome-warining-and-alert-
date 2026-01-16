@@ -13,12 +13,12 @@ FTP_DIRECTORY = os.getenv("FTP_DIRECTORY", "/")
 def generate_filename(station_code: str, serial_number: int, timestamp: datetime) -> str:
     """
     Generates filename according to convention:
-    WWIN81<StationCode><DDHHMM>.a
-    Example: WWIN81VASD260000.a
+    <StationCode>_<SerialNo>_<Time>_<Date>.txt
+    Example: VABB_1_1200_20251229.txt
     """
-    # DDHHMM
-    ddhhmm = timestamp.strftime("%d%H%M")
-    return f"WWIN81{station_code}{ddhhmm}.a"
+    time_str = timestamp.strftime("%H%M")
+    date_str = timestamp.strftime("%Y%m%d")
+    return f"{station_code}_{serial_number}_{time_str}_{date_str}.txt"
 
 def send_to_ftp(content: str, filename: str) -> dict:
     """

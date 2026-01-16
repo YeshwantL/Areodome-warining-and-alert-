@@ -42,18 +42,29 @@ def get_prediction(station_code: str, background_tasks: BackgroundTasks):
         if lines:
             latest_metar = lines[0]
 
-    parsed_data = parse_metar(latest_metar) if latest_metar else None
+    parsed_data = parse_metar(latest_metar, expected_station=station_code) if latest_metar else None
     
-    # 2. Predictive Fallback Logic
-    # If no live data, we check if we can provide a climatological/persistence fallback
+    # 2. Predictive Fallback Logic (Persistence)
+    # If no live data, we check if we can provide a forecast based on the last known valid observation
+    source_type = "live"
     if not parsed_data:
-        # Return a response indicating live data is unavailable
-        # We can still provide a "forecast" based on dynamic climatology if we want,
-        # but let's signal the lack of live data clearly.
+        history_df = load_data()
+        if not history_df.empty:
+            # Filter for this station and get newest
+            station_match = history_df[history_df['station'] == station_code].tail(1)
+            if not station_match.empty:
+                parsed_data = station_match.iloc[0].to_dict()
+                source_type = "cached"
+                # Ensure it has a datetime_obj for the model
+                if 'timestamp_obj' in parsed_data:
+                    parsed_data['datetime_obj'] = pd.to_datetime(parsed_data['timestamp_obj'], format='mixed')
+    
+    # If STILL no data (brand new station or complete missing history)
+    if not parsed_data:
         return {
             "station": station_code,
             "data_available": False,
-            "message": f"Live weather data for {station_code} is currently unavailable.",
+            "message": f"Live weather data for {station_code} is currently unavailable and no history found.",
             "current": None,
             "forecast": {}
         }

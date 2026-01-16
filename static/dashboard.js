@@ -13,6 +13,7 @@ let isAlarmPlaying = false;
 let lastAlertId = 0;
 const playedReplies = new Set();
 const airportNames = {}; // Cache for code -> name
+let currentActiveAlerts = []; // Store alerts globally
 const openReplyBoxes = new Set(); // Track open reply box IDs
 const replyInputValues = {}; // Store unsent reply text
 let lastAlertsData = null; // To avoid unnecessary re-renders
@@ -126,6 +127,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     setInterval(pollChat, 3000); // 3s polling for chat messages
     setInterval(checkGlobalNotifications, 4000); // 4s polling for global notifications
 
+    // Real-time Wind Forecast Polling (Every 60s)
+    setInterval(() => {
+        if (!currentUser) return;
+
+        if (currentUser.role === 'regional_airport') {
+            if (currentUser.airport_code) {
+                fetchPrediction(currentUser.airport_code);
+            }
+        } else if (currentUser.role === 'mwo_admin') {
+            const stationSelect = document.getElementById('forecast-airport-select');
+            if (stationSelect && stationSelect.value) {
+                fetchPrediction(stationSelect.value);
+            }
+        }
+    }, 60000);
+
+    alarmInterval = setInterval(() => {
+        // Alarm logic is handled by checkGlobalNotifications and pollChat
+        // This interval is a placeholder if we need specific repetitive checks
+    }, 5000);
+
     if (currentUser.role === 'mwo_admin') {
         // Stop alarm on any click
         document.addEventListener('click', (e) => {
@@ -216,7 +238,7 @@ function updatePreview() {
     // Update Textarea Value
     let finalText = text.toUpperCase();
     if (!finalText.startsWith("WWIN81")) {
-        finalText = "WWIN81 " + finalText;
+        finalText = "WWIN81\n" + finalText;
     }
     document.getElementById('alert-preview').value = finalText;
 }
@@ -317,6 +339,7 @@ async function fetchActiveAlerts() {
             const currentDataStr = JSON.stringify(alerts);
             if (currentDataStr !== lastAlertsData) {
                 lastAlertsData = currentDataStr;
+                currentActiveAlerts = alerts; // Update global store
                 renderAlerts(alerts);
             }
 
@@ -355,6 +378,10 @@ async function fetchActiveAlerts() {
 function renderAlerts(alerts) {
     const list = document.getElementById('active-alerts-list');
     list.innerHTML = '';
+
+    // Check local Expiry (since backend does filtering too, but good for real-time blink updates)
+    const now = new Date();
+
     alerts.forEach(alert => {
         const div = document.createElement('div');
         div.className = 'alert-item alert-active';
@@ -362,78 +389,149 @@ function renderAlerts(alerts) {
         div.style.marginBottom = '10px';
         div.style.background = '#fff3cd';
 
-        let contentStr = '';
+        // Show Full Warning Text (either generated or final_warning_text from backend)
+        const displayText = alert.final_warning_text || alert.content.generated_text || "";
 
-        // Use generated_text if available
-        if (alert.content.generated_text) {
-            contentStr = `<strong>${alert.content.generated_text}</strong>`;
-        } else {
-            if (alert.content.airport) {
-                contentStr = `<strong>${alert.content.airport} WRNG ${alert.content.seq}</strong><br>`;
+        // Parse Validity directly from text if possible (Source of Truth)
+        let validUntil = null;
+        let parsingError = false;
+        const hasValidKeyword = /\bVALID\b/i.test(displayText);
+
+        // Standard Utility for UTC date creation
+        const createUTCDate = (val) => {
+            const d = new Date();
+            let day, hour, min;
+
+            if (val.length === 6) {
+                day = parseInt(val.substring(0, 2));
+                hour = parseInt(val.substring(2, 4));
+                min = parseInt(val.substring(4, 6));
+            } else if (val.length === 4) {
+                day = d.getUTCDate();
+                hour = parseInt(val.substring(0, 2));
+                min = parseInt(val.substring(2, 4));
+            } else {
+                return null;
             }
 
-            if (alert.type === 'Wind') {
-                contentStr += `Wind: ${alert.content.direction}° ${alert.content.speed}KT G${alert.content.gust}KT`;
-            } else {
-                contentStr += `TS: ${alert.content.intensity} ${alert.content.type} ${alert.content.change}`;
+            const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), day, hour, min));
+            // Month rollover logic
+            if (date.getTime() < d.getTime() - (15 * 24 * 60 * 60 * 1000)) {
+                date.setUTCMonth(date.getUTCMonth() + 1);
+            } else if (date.getTime() > d.getTime() + (15 * 24 * 60 * 60 * 1000)) {
+                date.setUTCMonth(date.getUTCMonth() - 1);
+            }
+            return date;
+        };
+
+        // 1. Try Range: VALID 160630/161030 or with Z (Supports 4 or 6 digits)
+        const rangeMatch = displayText.match(/\bVALID\s+[\d]{4,6}Z?\s*\/\s*(\d{4,6})Z?/i);
+        // 2. Try Single: VALID 161030 or with Z
+        const singleMatch = displayText.match(/\bVALID\s+(\d{4,6})Z?/i);
+
+        if (rangeMatch) {
+            validUntil = createUTCDate(rangeMatch[1]);
+        } else if (singleMatch) {
+            validUntil = createUTCDate(singleMatch[1]);
+        } else if (alert.content && alert.content.valid_until_iso) {
+            validUntil = new Date(alert.content.valid_until_iso);
+        } else if (hasValidKeyword) {
+            parsingError = true;
+        }
+
+        let timeLeftMin = 999;
+        if (validUntil && !isNaN(validUntil.getTime())) {
+            const diffMs = validUntil.getTime() - now.getTime();
+            timeLeftMin = diffMs / 1000 / 60;
+        }
+
+        if (timeLeftMin <= 30 && timeLeftMin > -5) {
+            div.classList.add('blinking-alert');
+            if (!document.getElementById('blink-style')) {
+                const style = document.createElement('style');
+                style.id = 'blink-style';
+                style.innerHTML = `
+                    @keyframes blink { 0% { border: 2px solid transparent; } 50% { border: 2px solid red; background-color: #ffdce0; } 100% { border: 2px solid transparent; } }
+                    .blinking-alert { animation: blink 1s infinite; }
+                 `;
+                document.head.appendChild(style);
             }
         }
 
-        // Show Admin Reply if exists
-        let replyHtml = '';
-        if (alert.admin_reply) {
-            replyHtml = `<div style="margin-top: 5px; padding: 5px; background: #e0f7fa; border-left: 3px solid #00acc1;">
-                <strong>Admin Reply:</strong> ${alert.admin_reply}
-            </div>`;
+        let contentStr = displayText ? `<strong>${displayText}</strong>` : `<strong>UNKNOWN CONTENT</strong>`;
+        let validLabel = "";
+        if (parsingError) {
+            validLabel = '<span style="color: #d32f2f; font-weight: bold;">Invalid or unrecognized VALID format</span>';
+        } else if (validUntil && !isNaN(validUntil.getTime())) {
+            validLabel = `Valid Until (UTC): ${validUntil.toISOString().substring(11, 16)}`;
+        } else {
+            validLabel = "Valid Until (UTC): Unknown";
         }
 
         div.innerHTML = `
             <strong>${alert.type} Alert</strong> <br>
             ${contentStr} <br>
-            <small>Valid: ${alert.content.valid_from || alert.content.time} UTC</small>
+            <small>${validLabel}</small>
             ${alert.transmet_status ? `<div style="margin-top: 5px; font-weight: bold; color: ${alert.transmet_status === 'success' ? 'green' : 'red'};">TRANSMET: ${alert.transmet_status.toUpperCase()}</div>` : ''}
-            ${replyHtml}
-            ${currentUser && currentUser.role === 'mwo_admin' ? `<div style="margin-top: 5px;">
-                ${alert.status.toLowerCase() === 'active' ? `<button onclick="finalizeAlert(${alert.id})">Finalize</button>` : ''}
-                ${alert.status.toLowerCase() === 'finalized' ? `<button onclick="transmitAlert(${alert.id})" style="background-color: #6610f2;">Transmit to TRANSMET</button>` : ''}
-                ${alert.status.toLowerCase() === 'finalized' ? `<button onclick="downloadSingleAlert(${alert.id})" style="background-color: #27ae60; font-weight: bold;">Download .a</button>` : ''}
-                <button onclick="toggleReplyInput(${alert.id})" style="background-color: #008CBA;">Reply</button>
-                <div id="reply-container-${alert.id}" class="reply-input-container" style="display: ${openReplyBoxes.has(alert.id) ? 'flex' : 'none'};">
-                    <input type="text" id="reply-input-${alert.id}" placeholder="Enter reply..." 
-                        value="${replyInputValues[alert.id] || ''}"
-                        oninput="saveReplyText(${alert.id}, this.value)">
-                    <div class="reply-actions">
-                        <button onclick="submitReply(${alert.id})" style="background-color: #28a745;">Send</button>
-                        <button onclick="toggleReplyInput(${alert.id})" style="background-color: #6c757d;">Cancel</button>
-                    </div>
-                </div>
+            
+            ${currentUser && currentUser.role === 'mwo_admin' ? `<div style="margin-top: 5px; display: flex; gap: 5px; align-items: center;">
+                ${alert.finalized_at ? '<span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; font-weight: bold;">CONFIRMED</span>' : `
+                <button onclick="editAlert(${alert.id})" style="background-color: #007bff; color: white;">Edit</button>
+                <button onclick="confirmAlert(${alert.id})" style="background-color: #28a745; color: white;">Confirm</button>
+                <button onclick="transmitAlert(${alert.id})" style="background-color: #fd7e14; color: white;">Transmet</button>
+                `}
             </div>` : ''}
         `;
         list.appendChild(div);
     });
 }
 
-async function finalizeAlert(id) {
-    const warning = prompt("Enter Final Warning Text:");
-    if (!warning) return;
+async function old_editAlert(id, currentText) {
+    const newText = prompt("Edit Warning Message:", currentText);
+    if (newText === null || newText === currentText) return;
 
     try {
-        const response = await fetch(`/alerts/${id}/finalize`, {
+        const response = await fetch(`/alerts/${id}/edit`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${localStorage.getItem('token')}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ warning_text: warning })
+            body: JSON.stringify({ warning_text: newText })
         });
-
         if (response.ok) {
             fetchActiveAlerts();
+            alert("Alert updated!");
+        } else {
+            alert("Failed to update alert");
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Error updating alert");
+    }
+}
+
+async function confirmAlert(id) {
+    if (!confirm("Confirm this alert? It will remain active until expiry.")) return;
+    try {
+        const response = await fetch(`/alerts/${id}/confirm`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        if (response.ok) {
+            fetchActiveAlerts();
+            // Optional: User feedback? but refreshes list
+        } else {
+            alert("Failed to confirm");
         }
     } catch (e) {
         console.error(e);
     }
 }
+
+
 
 // Chat functions
 let currentChatPartnerId = null;
@@ -1362,5 +1460,60 @@ async function transmitAlert(id) {
     } catch (e) {
         console.error(e);
         alert("Transmission Failed: Network Error");
+    }
+}
+
+// EDIT ALERT MODAL LOGIC (New)
+let currentEditingAlertId = null;
+
+function editAlert(id) {
+    // Find alert in global store
+    const alertObj = currentActiveAlerts.find(a => a.id === id);
+    if (!alertObj) {
+        console.error("Alert not found in local store");
+        return;
+    }
+
+    currentEditingAlertId = id;
+    // Prefer final text (edited) -> generated (initial) -> empty
+    const displayText = alertObj.final_warning_text || alertObj.content.generated_text || "";
+
+    const textarea = document.getElementById('edit-alert-textarea');
+    if (textarea) textarea.value = displayText;
+
+    const modal = document.getElementById('edit-alert-modal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeEditModal() {
+    document.getElementById('edit-alert-modal').style.display = 'none';
+    currentEditingAlertId = null;
+}
+
+async function saveEditedAlert() {
+    if (!currentEditingAlertId) return;
+
+    const newText = document.getElementById('edit-alert-textarea').value;
+
+    try {
+        const response = await fetch(`/alerts/${currentEditingAlertId}/edit`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ warning_text: newText })
+        });
+
+        if (response.ok) {
+            closeEditModal();
+            fetchActiveAlerts();
+            alert("Alert updated. Click 'Transmet' to send.");
+        } else {
+            alert("Failed to update alert");
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Error updating alert");
     }
 }

@@ -216,17 +216,28 @@ class WindPredictor:
                 p_dir_rad = np.arctan2(-pred_u, -pred_v)
                 p_dir = np.degrees(p_dir_rad) % 360
                 
-                # Continuity Smoothing
+                # Continuity Smoothing (Speed)
                 diff_s = p_speed - last_s
                 if abs(diff_s) > 3.5: # 7 KT per hour approx
                     p_speed = last_s + np.sign(diff_s) * 3.5
+
+                # Continuity Smoothing (Direction)
+                # Calculate smallest difference on circle
+                diff_d = (p_dir - last_d + 180) % 360 - 180
+                if abs(diff_d) > 30: # Max 30 deg shift per step (smooth transition)
+                    p_dir = (last_d + np.sign(diff_d) * 30) % 360
                 
-                # Aviation Realism
+                # Aviation Realism & Clipping
                 p_speed = np.clip(p_speed, 0, 45)
-                if p_speed < 1.0: p_speed = 0.0
                 
                 final_speed = float(round(p_speed))
-                final_dir = float(round(p_dir / 5) * 5) % 360
+                # If speed is 0, direction should be 0 (Calm)
+                if final_speed < 1.0:
+                    final_speed = 0.0
+                    final_dir = 0.0
+                else:
+                    final_dir = float(round(p_dir / 5) * 5) % 360
+                    if final_dir == 360: final_dir = 0.0
                 
                 results[h] = (final_speed, final_dir)
                 last_s, last_d = final_speed, final_dir
@@ -240,23 +251,26 @@ class WindPredictor:
         """Returns persistence plus a slight diurnal trend to avoid flat lines."""
         s = obs.get('wind_speed', 0)
         d = obs.get('wind_dir', 0)
-        now_hour = datetime.now().hour
+        now_hour = datetime.utcnow().hour
         
         results = {}
         for i, h in enumerate(self.horizons):
-            # i = 0 (30m), 1 (60m) etc.
-            # Add a slight +/- 1.5 KT swing based on time of day
-            # (Wind is usually higher in afternoon)
+            # Diurnal speed factor (peaks in afternoon)
             hour_offset = (i + 1) * 0.5
             target_hour = (now_hour + hour_offset) % 24
-            
-            # Simple diurnal speed factor (peaks at 15:00 UTC/IST approx)
             diurnal = np.sin(2 * np.pi * (target_hour - 9) / 24) * 1.5
             
             p_s = max(0, float(round(s + diurnal)))
-            # Direction stays mostly persistence but with a slight drift
-            drift = np.cos(2 * np.pi * (target_hour - 12) / 24) * 5
-            p_d = float(round((d + drift) / 5) * 5) % 360
+            
+            # If speed is 0, direction should be 0 (Calm)
+            if p_s < 1.0:
+                p_s = 0.0
+                p_d = 0.0
+            else:
+                # Direction stays pure persistence (no artificial drift)
+                # Previous drift caused confusing 340 -> 335 shifts
+                p_d = float(round(d / 5) * 5) % 360
+                if p_d == 360: p_d = 0.0
             
             results[h] = (p_s, p_d)
         return results
