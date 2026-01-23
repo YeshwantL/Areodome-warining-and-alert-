@@ -213,8 +213,50 @@ async def get_active_alerts(
                         continue
                 except ValueError:
                     pass
+        
+        # Populate station_code for frontend
+        if alert.sender:
+             alert.station_code = alert.sender.airport_code
+             
         valid_alerts.append(alert)
         
+    return valid_alerts
+
+@router.get("/map", response_model=List[schemas.Alert])
+async def get_map_alerts(db: Session = Depends(database.get_db)):
+    """
+    Public endpoint for the map display. Returns all active alerts.
+    """
+    query = db.query(models.Alert).filter(
+        models.Alert.status.in_([models.AlertStatus.ACTIVE, models.AlertStatus.FINALIZED])
+    )
+    all_active = query.all()
+    
+    valid_alerts = []
+    now_utc = datetime.utcnow()
+    
+    for alert in all_active:
+        # Check expiry
+        if alert.content and isinstance(alert.content, dict):
+            valid_until_iso = alert.content.get('valid_until_iso')
+            if valid_until_iso:
+                try:
+                    valid_until = datetime.fromisoformat(valid_until_iso)
+                    if now_utc > valid_until:
+                        continue
+                except ValueError:
+                    pass
+        
+        # Populate station_code
+        if alert.sender:
+             alert.station_code = alert.sender.airport_code
+             print(f"DEBUG: Alert {alert.id} - Sender: {alert.sender.username} - Code: {alert.station_code} - ValidUntil: {valid_until if 'valid_until' in locals() else 'N/A'}")
+        else:
+             print(f"DEBUG: Alert {alert.id} has NO SENDER")
+             
+        valid_alerts.append(alert)
+        
+    print(f"DEBUG: Returning {len(valid_alerts)} alerts for map")
     return valid_alerts
 
 import ftp_client

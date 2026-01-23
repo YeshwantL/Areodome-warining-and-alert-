@@ -17,7 +17,10 @@ async def lifespan(app: FastAPI):
     # Shutdown
     tasks.scheduler.shutdown()
 
+from fastapi.middleware.gzip import GZipMiddleware
+
 app = FastAPI(title="Aerodrome Warning Alert System", lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.include_router(auth.router, prefix="/auth")
 app.include_router(alerts.router)
@@ -28,6 +31,7 @@ app.include_router(prediction.router)
 
 import os
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
+app.mount("/map", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "IMD_MAP"), html=True), name="map")
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
 @app.get("/")

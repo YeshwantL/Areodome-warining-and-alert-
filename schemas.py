@@ -55,6 +55,7 @@ class Alert(AlertBase):
     serial_number: Optional[int] = None
     ftp_status: Optional[FtpStatus] = None
     ftp_response: Optional[str] = None
+    station_code: Optional[str] = None
     
     class Config:
         from_attributes = True
