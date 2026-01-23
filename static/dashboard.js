@@ -214,7 +214,7 @@ function updatePreview() {
     // Header
     // VASD 080615 AD WRNG 1 VALID 080630/081030 
 
-    let text = `${airport} ${validFrom} AD WRNG ${seq} VALID ${validFrom}/${validTo}`;
+    let text = `AD WRNG ${seq} VALID ${validFrom}/${validTo}`;
 
     if (type === 'Wind') {
         // SFC WSPD 17KT MAX27 FROM 020 DEG FCST NC=
@@ -238,7 +238,8 @@ function updatePreview() {
     // Update Textarea Value
     let finalText = text.toUpperCase();
     if (!finalText.startsWith("WWIN81")) {
-        finalText = "WWIN81\n" + finalText;
+        // Updated Header: WWIN81 STATION DDHHMM
+        finalText = `WWIN81 ${airport} ${validFrom}\n` + finalText;
     }
     document.getElementById('alert-preview').value = finalText;
 }
@@ -472,14 +473,16 @@ function renderAlerts(alerts) {
             <strong>${alert.type} Alert</strong> <br>
             ${contentStr} <br>
             <small>${validLabel}</small>
-            ${alert.transmet_status ? `<div style="margin-top: 5px; font-weight: bold; color: ${alert.transmet_status === 'success' ? 'green' : 'red'};">TRANSMET: ${alert.transmet_status.toUpperCase()}</div>` : ''}
+            ${alert.transmet_status ? `<div style="margin-top: 5px; font-weight: bold; color: ${alert.transmet_status === 'success' ? 'green' : 'red'};" title="${alert.transmet_response || ''}">TRANSMET: ${alert.transmet_status.toUpperCase()} ${alert.transmet_status.toLowerCase() === 'failure' && alert.transmet_response ? `<br><small style="font-weight:normal; color:darkred; font-size: 0.8em;">${alert.transmet_response}</small>` : ''}</div>` : ''}
             
             ${currentUser && currentUser.role === 'mwo_admin' ? `<div style="margin-top: 5px; display: flex; gap: 5px; align-items: center;">
-                ${alert.finalized_at ? '<span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; font-weight: bold;">CONFIRMED</span>' : `
-                <button onclick="editAlert(${alert.id})" style="background-color: #007bff; color: white;">Edit</button>
+                ${alert.finalized_at ?
+                    `<span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; font-weight: bold;">CONFIRMED</span>
+                 ${alert.transmet_status !== 'success' ? `<button onclick="transmitAlert(${alert.id})" style="background-color: #fd7e14; color: white;">Transmet</button>` : ''}`
+                    :
+                    `<button onclick="editAlert(${alert.id})" style="background-color: #007bff; color: white;">Edit</button>
                 <button onclick="confirmAlert(${alert.id})" style="background-color: #28a745; color: white;">Confirm</button>
-                <button onclick="transmitAlert(${alert.id})" style="background-color: #fd7e14; color: white;">Transmet</button>
-                `}
+                <button onclick="transmitAlert(${alert.id})" style="background-color: #fd7e14; color: white;">Transmet</button>`}
             </div>` : ''}
         `;
         list.appendChild(div);

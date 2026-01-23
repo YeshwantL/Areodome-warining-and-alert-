@@ -78,7 +78,8 @@ def _contextualize_expiry(end_day: int, end_hour: int, end_min: int) -> datetime
 def format_aviation_warning(alert):
     """
     Generates standard aviation warning string:
-    VAKP 031200 AD WRNG 1 VALID 031200/031800 SFC WSPD 17KT MAX27 FROM 292 DEG FCST NC=
+    WWIN81 VAKP 170650
+    VAKP 170650 AD WRNG 1 VALID 170650/171050 SFC WSPD 17KT MAX27 FROM 090 DEG FCST NC=
     """
     try:
         # 0. Prefer pre-generated text from frontend if available (Exact Match)
@@ -113,11 +114,10 @@ def format_aviation_warning(alert):
                 content_parts.append("TS")
         
         details = " ".join(content_parts)
-        # Ensure the aviation format always starts with the station/time and prepend WWIN81 if missing
-        raw_format = f"{station} {ddhhmm} AD WRNG {serial} VALID {valid_str} {details} FCST NC="
-        if not raw_format.startswith("WWIN81"):
-            return f"WWIN81\n{raw_format}"
-        return raw_format
+        
+        # New format: WWIN81 STATION DDHHMM on first line, then warning on second line
+        warning_line = f"AD WRNG {serial} VALID {valid_str} {details} FCST NC="
+        return f"WWIN81 {station} {ddhhmm}\n{warning_line}"
         
     except Exception as e:
         return f"Error generating format: {str(e)}"
@@ -259,25 +259,31 @@ async def finalize_alert(
         filename = ftp_client.generate_filename(station_code, next_serial, alert.finalized_at)
 
         # Prepare content
-        # Ensure WWIN81 is on its own line
+        # Ensure WWIN81 header format: WWIN81 STATION DDHHMM
         body = alert.final_warning_text
+        station_code = alert.sender.airport_code or "XXXX"
+        dt = alert.finalized_at or datetime.utcnow()
+        ddhhmm = dt.strftime("%d%H%M")
+        
         if body.startswith("WWIN81"):
-            if "\n" not in body[:10]: # If it's WWIN81 VASD... instead of WWIN81\nVASD...
-                file_content = body.replace("WWIN81 ", "WWIN81\n", 1)
-            else:
-                file_content = body
+            file_content = body
         else:
-            file_content = f"WWIN81\n{body}"
+            file_content = f"WWIN81 {station_code} {ddhhmm}\n{body}"
         
-        # A. Delivery via FTP
-        alert.ftp_status = models.FtpStatus.PENDING
-        ftp_result = ftp_client.send_to_ftp(file_content, filename)
+        # A. Delivery via FTP - DISABLED due to requirement "warning should not go to any other server"
+        # alert.ftp_status = models.FtpStatus.PENDING
+        # ftp_result = ftp_client.send_to_ftp(file_content, filename)
+        # 
+        # if ftp_result["status"] == "success":
+        #      alert.ftp_status = models.FtpStatus.SUCCESS
+        # else:
+        #      alert.ftp_status = models.FtpStatus.FAILURE
+        # alert.ftp_response = ftp_result["response"]
         
-        if ftp_result["status"] == "success":
-             alert.ftp_status = models.FtpStatus.SUCCESS
-        else:
-             alert.ftp_status = models.FtpStatus.FAILURE
-        alert.ftp_response = ftp_result["response"]
+        # Explicitly mark as skipped/failure to indicate it wasn't sent, or just log it.
+        # Check if 'DISABLED' status exists or usage FAILURE. Using a placeholder response.
+        alert.ftp_status = models.FtpStatus.FAILURE # Or new status if available, but FAILURE/SKIPPED is safe
+        alert.ftp_response = "FTP Disabled by configuration"
 
         # B. Delivery to Airport System (Transmet/Socket)
         alert.transmet_status = models.TransmetStatus.PENDING
@@ -465,7 +471,12 @@ async def transmit_alert(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     
-    if not alert.final_warning_text:
+    # Use final text if confirmed, else fallback to generated text
+    body = alert.final_warning_text
+    if not body and alert.content:
+        body = alert.content.get('generated_text')
+        
+    if not body:
          raise HTTPException(status_code=400, detail="Final warning text is missing")
     
     # Check if confirmed (finalized_at set) OR if we allow transmitting unconfirmed?
@@ -478,17 +489,15 @@ async def transmit_alert(
     # Generate .a file for passed warnings
     try:
         # Prepare content
-        body = alert.final_warning_text
+        # body is already set above
+        station_code = alert.sender.airport_code or "XXXX"
+        dt = alert.finalized_at or datetime.utcnow()
+        ddhhmm = dt.strftime("%d%H%M")
+        
         if body.startswith("WWIN81"):
-            if "\n" not in body[:10]:
-                file_content = body.replace("WWIN81 ", "WWIN81\n", 1)
-            else:
-                file_content = body
+            file_content = body
         else:
-            station_code = alert.sender.airport_code or "XXXX"
-            dt = alert.finalized_at or datetime.utcnow()
-            ddhhmm = dt.strftime("%d%H%M")
-            file_content = f"WWIN81\n{station_code} {ddhhmm}\n{body}"
+            file_content = f"WWIN81 {station_code} {ddhhmm}\n{body}"
         
         # Socket transmission content must match the file content
         transmet_payload = file_content
@@ -578,11 +587,11 @@ async def download_history(
         output.seek(0)
         
         # 4. Filename Standardization
-        time_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+        time_str = datetime.now().strftime('%d%H%M')
         if airport_code:
-            filename = f"WWIN81{airport_code}_{time_str}.txt"
+            filename = f"WWIN81{airport_code}{time_str}.txt"
         else:
-            filename = f"WWIN81_HISTORY_{time_str}.txt"
+            filename = f"WWIN81{time_str}.txt"
             
         return StreamingResponse(
             io.BytesIO(output.getvalue().encode('utf-8')),
@@ -637,24 +646,19 @@ async def download_history_bulk_a(
                 dt = alert.finalized_at or alert.created_at
                 ddhhmm = dt.strftime("%d%H%M")
                 
-                # Filename: WWIN81<Station><DDHHMM>_<ID>.a to avoid duplicate names in zip
-                filename = f"WWIN81{station_code}{ddhhmm}_{alert.id}.a"
-                header_line = f"WWIN81 {station_code} {ddhhmm}"
+                # Filename: WWIN81<Station><DDHHMM><ID>.a to avoid duplicate names in zip
+                filename = f"WWIN81{station_code}{ddhhmm}{alert.id}.a"
                 
                 body = alert.final_warning_text or ""
                 if body.startswith("WWIN81"):
-                    if "\n" not in body[:10]:
-                        content = body.replace("WWIN81 ", "WWIN81\n", 1)
-                    else:
-                        content = body
+                    content = body
                 else:
-                    header_line = f"WWIN81\n{station_code} {ddhhmm}"
-                    content = f"{header_line}\n{body}"
+                    content = f"WWIN81 {station_code} {ddhhmm}\n{body}"
                 
                 zip_file.writestr(filename, content)
 
         zip_buffer.seek(0)
-        zip_filename = f"alerts_bulk_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        zip_filename = f"alertsbulk{datetime.now().strftime('%Y%m%d%H%M%S')}.zip"
         
         return StreamingResponse(
             zip_buffer,
@@ -680,17 +684,13 @@ async def download_alert(
         station_code = alert.sender.airport_code or "XXXX"
         dt = alert.finalized_at or datetime.utcnow()
         ddhhmm = dt.strftime("%d%H%M")
-        header_line = f"WWIN81 {station_code} {ddhhmm}"
         
         filename = f"WWIN81{station_code}{ddhhmm}.a"
         body = alert.final_warning_text
         if body.startswith("WWIN81"):
-            if "\n" not in body[:10]:
-                content = body.replace("WWIN81 ", "WWIN81\n", 1)
-            else:
-                content = body
+            content = body
         else:
-            content = f"WWIN81\n{header_line}\n{body}"
+            content = f"WWIN81 {station_code} {ddhhmm}\n{body}"
         
         return Response(
             content=content,

@@ -28,12 +28,32 @@ def deploy_full():
             "templates/dashboard.html",
             "parse_metar.py",
             "model.py",
-            "wind_prediction.py"
+            "wind_prediction.py",
+            "transmet.py"
         ]
         
-        # 1. Handle old auth router cleanup
-        print("Cleaning up old files on server...")
-        client.exec_command(f"rm {project_dir}/routers/auth.py") # Prevents import shadowing
+        # 1. Handle old auth router cleanup and unnecessary scripts
+        print("Cleaning up old files and scripts on server...")
+        files_to_remove = [
+            "routers/auth.py",
+            "debug_calm_wind.py",
+            "test_actual_predictions.py",
+            "test_filename_format.py",
+            "test_meteorological.py",
+            "test_prediction_flow.py",
+            "test_warning_format.py",
+            "test_wind_logic.py",
+            "test_wwin81_format.py",
+            "verify_admin_features.py",
+            "verify_direction_fix.py",
+            "verify_formulas.py",
+            "verify_history.py",
+            "verify_password_change.py",
+            "verify_reply.py",
+            "verify_wind_fix.py"
+        ]
+        cleanup_cmd = " && ".join([f"rm -f {project_dir}/{f}" for f in files_to_remove])
+        client.exec_command(cleanup_cmd)
 
         # 2. SFTP Upload
         print("Uploading ALL modified files via SFTP...")

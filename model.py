@@ -149,7 +149,22 @@ class WindPredictor:
         
         s_curr = current_observation.get('wind_speed', 0)
         d_curr = current_observation.get('wind_dir', 0)
-        rad_curr = np.radians(d_curr)
+        
+        # FIX: When current wind is calm, use last known non-calm direction for persistence
+        # This prevents arctan2 from producing arbitrary directions when u_pers = v_pers = 0
+        persistence_dir = d_curr
+        if s_curr < 1.0 and history_df is not None and not history_df.empty:
+            # Find last non-calm wind direction
+            non_calm = history_df[history_df['wind_speed'] >= 1.0]
+            if not non_calm.empty:
+                # Get the most recent non-calm observation
+                if 'timestamp_obj' in non_calm.columns:
+                    non_calm_sorted = non_calm.sort_values('timestamp_obj', ascending=False)
+                    persistence_dir = non_calm_sorted.iloc[0]['wind_dir']
+                else:
+                    persistence_dir = non_calm.iloc[-1]['wind_dir']
+        
+        rad_curr = np.radians(persistence_dir)
         u_pers = -s_curr * np.sin(rad_curr)
         v_pers = -s_curr * np.cos(rad_curr)
 
@@ -213,8 +228,16 @@ class WindPredictor:
                 pred_v = alpha * pred_v_raw + (1 - alpha) * v_pers
 
                 p_speed = np.sqrt(pred_u**2 + pred_v**2)
-                p_dir_rad = np.arctan2(-pred_u, -pred_v)
-                p_dir = np.degrees(p_dir_rad) % 360
+                
+                # FIX: For low wind speeds, use persistence direction instead of arctan2
+                # arctan2 produces arbitrary directions when u,v components are very small
+                if p_speed < 5.0:
+                    # Use persistence direction for low speeds
+                    p_dir = persistence_dir
+                else:
+                    # Calculate direction from U/V components for higher speeds
+                    p_dir_rad = np.arctan2(-pred_u, -pred_v)
+                    p_dir = np.degrees(p_dir_rad) % 360
                 
                 # Continuity Smoothing (Speed)
                 diff_s = p_speed - last_s

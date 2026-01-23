@@ -18,7 +18,7 @@ def generate_filename(station_code: str, serial_number: int, timestamp: datetime
     """
     time_str = timestamp.strftime("%H%M")
     date_str = timestamp.strftime("%Y%m%d")
-    return f"{station_code}_{serial_number}_{time_str}_{date_str}.txt"
+    return f"WWIN81{station_code}{serial_number}{time_str}{date_str}.txt"
 
 def send_to_ftp(content: str, filename: str) -> dict:
     """
