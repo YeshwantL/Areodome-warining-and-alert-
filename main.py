@@ -31,7 +31,7 @@ app.include_router(prediction.router)
 
 import os
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
-app.mount("/map", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "IMD_MAP"), html=True), name="map")
+
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
 @app.get("/")
