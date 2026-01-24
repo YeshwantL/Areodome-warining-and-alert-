@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MWO Dashboard - India Aviation</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@500;700&display=swap"
+        rel="stylesheet">
+    <script src="d3.v7.min.js"></script>
+    <script src="topojson.min.js"></script>
+</head>
+
+<body class="mwo-theme map-only">
+    <div id="dashboard-container">
+        <!-- Sidebar Navigation -->
+        <nav id="sidebar">
+            <div class="sidebar-header">
+                <div class="mwo-logo">MWO-AERO</div>
+                <div class="system-time" id="clock">--:--:--</div>
+            </div>
+
+            <div class="nav-section">
+                <div class="section-title">REGIONAL MONITORING</div>
+                <ul id="airport-nav-list">
+                    <!-- Populated by JS -->
+                </ul>
+            </div>
+
+            <div class="active-alerts">
+                <div class="section-title">ACTIVE ALERTS</div>
+                <div class="alert-card warning">
+                    <span class="alert-icon">⚠️</span>
+                    <div class="alert-body">
+                        <div class="alert-name">VABB - Crosswind</div>
+                        <div class="alert-time">12 mins ago</div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main id="monitor-area">
+            <header id="main-header">
+                <div class="header-left">
+                    <h1>MWO SYSTEM <span class="divider">/</span> REGIONAL MET MAP</h1>
+                    <p>MAHARASHTRA & GOA FLIGHT INFORMATION REGION (FIR)</p>
+                </div>
+                <div class="header-right">
+                    <div class="status-indicator online">
+                        <span class="dot"></span> LIVE DATA
+                    </div>
+                </div>
+            </header>
+
+            <div id="map-control-center">
+                <!-- Map Wrapper -->
+                <div id="map-viewport">
+                    <svg id="main-map"></svg>
+
+                    <div id="map-controls">
+                        <button class="map-btn" id="zoom-in">+</button>
+                        <button class="map-btn" id="zoom-out">-</button>
+                        <button class="map-btn" id="zoom-reset">RESET VIEW</button>
+                        <button class="map-btn" id="toggle-grid">GRID</button>
+                    </div>
+
+                    <div id="scale-bar-container">
+                        <div id="scale-bar-line"></div>
+                        <div id="scale-bar-text">500 km</div>
+                    </div>
+
+                    <!-- Inset Map (Modernized) -->
+                    <div id="mwo-inset-container">
+                        <div class="inset-tab">MH-GOA DETAIL</div>
+                        <svg id="inset-map"></svg>
+                    </div>
+                </div>
+
+                <!-- Info Panel (Right Side) -->
+                <aside id="info-panel">
+                    <div id="selected-airport-card" class="mwo-panel">
+                        <div class="panel-header">SELECTED AERODROME</div>
+                        <div class="panel-body">
+                            <div id="no-selection-msg">SELECT AN AIRPORT ON THE MAP</div>
+                            <div id="airport-details" class="hidden">
+                                <h2 id="det-name">---</h2>
+                                <h3 id="det-code">----</h3>
+                                <hr>
+                                <div class="metar-display" id="det-metar">
+                                    METAR VABB 161630Z 27010KT 5000 HZ NSC 22/16 Q1012 NOSIG
+                                </div>
+                                <div class="data-grid">
+                                    <div class="data-item">
+                                        <span class="data-label">WIND</span>
+                                        <span class="data-value" id="det-wind">270/10 KT</span>
+                                    </div>
+                                    <div class="data-item">
+                                        <span class="data-label">VIS</span>
+                                        <span class="data-value" id="det-vis">5000 M</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="legend-panel" class="mwo-panel">
+                        <div class="panel-header">MAP LEGEND</div>
+                        <div class="panel-body">
+                            <div class="legend-item">
+                                <svg class="pin-icon blue-pin" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"
+                                        style="fill: #2563eb;" />
+                                </svg>
+                                <span>NORMAL OPERATIONS</span>
+                            </div>
+                            <div class="legend-item">
+                                <svg class="pin-icon red-pin" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"
+                                        style="fill: #ef4444;" />
+                                </svg>
+                                <span>ACTIVE WARNING</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="box-mwo highlight"></div>
+                                <span>FIR PRIORITY Area</span>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </main>
+    </div>
+
+    <script src="script.js?v=6"></script>
+</body>
+
+</html>
