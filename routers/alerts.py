@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.sql import func
 
 # Allow standalone execution
@@ -141,7 +141,7 @@ async def create_alert(
     gen_text = alert.content.get('generated_text', '')
     parsed_valid_until = parse_validity_from_text(gen_text)
     if parsed_valid_until:
-        alert.content['valid_until_iso'] = parsed_valid_until.isoformat()
+        alert.content['valid_until_iso'] = parsed_valid_until.isoformat() + "Z"
     else:
         # Fallback to manual date calc if parsing fails, but user wants parsing to be primary.
         # If parsing fails, we might want to store 'INVALID' or something, 
@@ -155,7 +155,7 @@ async def create_alert(
                 valid_until = now_utc.replace(hour=hour, minute=minute, second=0, microsecond=0)
                 if valid_until < now_utc:
                      valid_until += timedelta(days=1)
-                alert.content['valid_until_iso'] = valid_until.isoformat()
+                alert.content['valid_until_iso'] = valid_until.isoformat() + "Z"
             except ValueError:
                 pass
 
@@ -194,7 +194,7 @@ async def get_active_alerts(
     all_active = query.all()
     
     valid_alerts = []
-    now_utc = datetime.utcnow()
+    now_utc = datetime.now(timezone.utc)
     
     for alert in all_active:
         # Check expiry
@@ -203,6 +203,8 @@ async def get_active_alerts(
             if valid_until_iso:
                 try:
                     valid_until = datetime.fromisoformat(valid_until_iso)
+                    if valid_until.tzinfo is None:
+                        valid_until = valid_until.replace(tzinfo=timezone.utc)
                     # If expired, mark as ARCHIVED/FINALIZED? 
                     # User said: "automatically removed or marked inactive once validity period expires."
                     # We will filter it out from display. Opt: Update status in DB for cleanup.
@@ -233,7 +235,7 @@ async def get_map_alerts(db: Session = Depends(database.get_db)):
     all_active = query.all()
     
     valid_alerts = []
-    now_utc = datetime.utcnow()
+    now_utc = datetime.now(timezone.utc)
     
     for alert in all_active:
         # Check expiry
@@ -242,6 +244,8 @@ async def get_map_alerts(db: Session = Depends(database.get_db)):
             if valid_until_iso:
                 try:
                     valid_until = datetime.fromisoformat(valid_until_iso)
+                    if valid_until.tzinfo is None:
+                        valid_until = valid_until.replace(tzinfo=timezone.utc)
                     if now_utc > valid_until:
                         continue
                 except ValueError:
@@ -402,7 +406,7 @@ async def update_alert_text(
         new_content = alert.content.copy()
         new_content['generated_text'] = data.warning_text
         if parsed_valid_until:
-             new_content['valid_until_iso'] = parsed_valid_until.isoformat()
+             new_content['valid_until_iso'] = parsed_valid_until.isoformat() + "Z"
         else:
              # If parsing fails on edit, we might want to clear it? 
              # Or mark it invalid. Let's clear it so UI shows "Invalid"

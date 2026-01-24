@@ -376,7 +376,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
                     let expiryTime = 0;
                     if (alert.content && alert.content.valid_until_iso) {
-                        expiryTime = new Date(alert.content.valid_until_iso).getTime();
+                        let iso = alert.content.valid_until_iso;
+                        // Determine if we need to force UTC.
+                        // If it doesn't end with Z and has no offsets (+/-), append Z.
+                        if (!iso.endsWith("Z") && !iso.includes("+") && (iso.match(/-/g) || []).length === 2) {
+                            iso += "Z";
+                        }
+                        expiryTime = new Date(iso).getTime();
                     }
 
                     const timeLeft = expiryTime - now;

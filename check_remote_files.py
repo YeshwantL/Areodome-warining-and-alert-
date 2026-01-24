@@ -9,7 +9,7 @@ def check_files():
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
         client.connect(HOSTNAME, username=USERNAME, password=PASSWORD)
-        stdin, stdout, stderr = client.exec_command("tail -n 100 ./app/server.log")
+        stdin, stdout, stderr = client.exec_command("tail -n 300 ./app/server.log")
         print(stdout.read().decode())
         print(stderr.read().decode())
     finally:
