@@ -1,0 +1,14 @@
+
+============================================
+       WIND MODEL ACCURACY REPORT
+============================================
+Total Predictions Verified: 79
+
+--- Performance Metrics ---
+Wind Speed MAE:       1.75 KT
+Wind Direction MAE:   23.86 °
+
+--- Accuracy Thresholds ---
+Speed Accuracy (within ±5 KT):      98.7%
+Direction Accuracy (within ±30°):   81.0%
+============================================
