@@ -53,6 +53,8 @@ def deploy_full():
             "verify_wind_fix.py"
         ]
         cleanup_cmd = " && ".join([f"rm -f {project_dir}/{f}" for f in files_to_remove])
+        # Also remove the IMD_MAP directory
+        cleanup_cmd += f" && rm -rf {project_dir}/IMD_MAP"
         client.exec_command(cleanup_cmd)
 
 
@@ -66,22 +68,6 @@ def deploy_full():
                 print(f"Uploading {local_path} to {remote_path}...")
                 sftp.put(local_path, remote_path)
             print("All files uploaded successfully.")
-
-            # 2.1 Upload IMD_MAP folder
-            print("Uploading IMD_MAP...")
-            remote_map_dir = f"{project_dir}/IMD_MAP"
-            try:
-                sftp.mkdir(remote_map_dir)
-            except IOError:
-                pass # Directory likely exists
-
-            map_files = ["index.html", "script.js", "style.css", "india_state.geojson", "d3.v7.min.js", "topojson.min.js"]
-            for f in map_files:
-                local_path = f"IMD_MAP/{f}"
-                remote_path = f"{remote_map_dir}/{f}"
-                print(f"Uploading {local_path} to {remote_path}...")
-                sftp.put(local_path, remote_path)
-            print("IMD_MAP uploaded successfully.")
         except Exception as e:
             print(f"SFTP Upload failed: {e}")
             return

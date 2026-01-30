@@ -115,9 +115,10 @@ def format_aviation_warning(alert):
         
         details = " ".join(content_parts)
         
-        # New format: WWIN81 STATION DDHHMM on first line, then warning on second line
+        # New format: WWIN81 STATION DDHHMM on first line, 
+        # then STATION DDHHMM on second line, then warning on third line
         warning_line = f"AD WRNG {serial} VALID {valid_str} {details} FCST NC="
-        return f"WWIN81 {station} {ddhhmm}\n{warning_line}"
+        return f"WWIN81 {station_code} {ddhhmm}\n{station_code} {ddhhmm}\n{warning_line}"
         
     except Exception as e:
         return f"Error generating format: {str(e)}"
@@ -275,9 +276,14 @@ async def finalize_alert(
         ddhhmm = dt.strftime("%d%H%M")
         
         if body.startswith("WWIN81"):
-            file_content = body
+            lines = body.splitlines()
+            if lines and not lines[0].strip().endswith(".X"):
+                lines[0] = lines[0].strip() + " .X"
+                file_content = "\n".join(lines)
+            else:
+                file_content = body
         else:
-            file_content = f"WWIN81 {station_code} {ddhhmm}\n{body}"
+            file_content = f"WWIN81 {station_code} {ddhhmm} .X\n{body}"
         
         # A. Delivery via FTP - DISABLED due to requirement "warning should not go to any other server"
         # alert.ftp_status = models.FtpStatus.PENDING
@@ -504,9 +510,14 @@ async def transmit_alert(
         ddhhmm = dt.strftime("%d%H%M")
         
         if body.startswith("WWIN81"):
-            file_content = body
+            lines = body.splitlines()
+            if lines and not lines[0].strip().endswith(".X"):
+                lines[0] = lines[0].strip() + " .X"
+                file_content = "\n".join(lines)
+            else:
+                file_content = body
         else:
-            file_content = f"WWIN81 {station_code} {ddhhmm}\n{body}"
+            file_content = f"WWIN81 {station_code} {ddhhmm} .X\n{body}"
         
         # Socket transmission content must match the file content
         transmet_payload = file_content

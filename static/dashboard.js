@@ -239,7 +239,8 @@ function updatePreview() {
     let finalText = text.toUpperCase();
     if (!finalText.startsWith("WWIN81")) {
         // Updated Header: WWIN81 STATION DDHHMM
-        finalText = `WWIN81 ${airport} ${validFrom}\n` + finalText;
+        // Line 2: STATION DDHHMM
+        finalText = `WWIN81 ${airport} ${validFrom}\n${airport} ${validFrom}\n` + finalText;
     }
     document.getElementById('alert-preview').value = finalText;
 }
