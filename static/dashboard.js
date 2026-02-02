@@ -169,15 +169,31 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function initPreview() {
-    // We do NOT auto-fill visible fields anymore. User enters HHMM only.
+    // Auto-fill UTC Time (HHMM)
+    const now = new Date();
+    const hh = String(now.getUTCHours()).padStart(2, '0');
+    const mm = String(now.getUTCMinutes()).padStart(2, '0');
 
-    // Attach event listeners to all inputs in the form
+    // Default +4 hours
+    const future = new Date(now.getTime() + 4 * 60 * 60 * 1000);
+    const fhh = String(future.getUTCHours()).padStart(2, '0');
+    const fmm = String(future.getUTCMinutes()).padStart(2, '0');
+
     const form = document.getElementById('alertForm');
-    const inputs = form.querySelectorAll('input, select');
-    inputs.forEach(input => {
-        input.addEventListener('input', updatePreview);
-        input.addEventListener('change', updatePreview);
-    });
+    if (form) {
+        const vf = form.querySelector('input[name="valid_from"]');
+        if (vf) vf.value = hh + mm;
+
+        const vt = form.querySelector('input[name="valid_to"]');
+        if (vt) vt.value = fhh + fmm;
+
+        // Attach event listeners to all inputs in the form
+        const inputs = form.querySelectorAll('input, select');
+        inputs.forEach(input => {
+            input.addEventListener('input', updatePreview);
+            input.addEventListener('change', updatePreview);
+        });
+    }
 
     // Initial update
     updatePreview();
@@ -207,7 +223,16 @@ function updatePreview() {
     // Let's show DDHHMM as placeholder in preview if empty.
 
     let validFrom = validFromTime ? (day + validFromTime) : 'DDHHMM';
-    let validTo = validToTime ? (day + validToTime) : 'DDHHMM';
+
+    // Day rollover logic for Valid To
+    // If To time is less than From time, assume it's the next day
+    let toDay = day;
+    if (validFromTime && validToTime && validToTime < validFromTime) {
+        const d = new Date();
+        d.setUTCDate(d.getUTCDate() + 1);
+        toDay = String(d.getUTCDate()).padStart(2, '0');
+    }
+    let validTo = validToTime ? (toDay + validToTime) : 'DDHHMM';
 
     const type = formData.get('type');
 
