@@ -168,8 +168,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-function initPreview() {
-    // Auto-fill UTC Time (HHMM)
+
+let userEditedTime = false;
+
+function updateTimeFields() {
+    if (userEditedTime) return;
+
     const now = new Date();
     const hh = String(now.getUTCHours()).padStart(2, '0');
     const mm = String(now.getUTCMinutes()).padStart(2, '0');
@@ -182,15 +186,37 @@ function initPreview() {
     const form = document.getElementById('alertForm');
     if (form) {
         const vf = form.querySelector('input[name="valid_from"]');
-        if (vf) vf.value = hh + mm;
+        if (vf && document.activeElement !== vf) {
+            vf.value = hh + mm;
+        }
 
         const vt = form.querySelector('input[name="valid_to"]');
-        if (vt) vt.value = fhh + fmm;
+        if (vt && document.activeElement !== vt) {
+            vt.value = fhh + fmm;
+        }
+
+        updatePreview();
+    }
+}
+
+function initPreview() {
+    const form = document.getElementById('alertForm');
+    if (form) {
+        // Initial set
+        updateTimeFields();
+
+        // Start interval
+        setInterval(updateTimeFields, 60000);
 
         // Attach event listeners to all inputs in the form
         const inputs = form.querySelectorAll('input, select');
         inputs.forEach(input => {
-            input.addEventListener('input', updatePreview);
+            input.addEventListener('input', (e) => {
+                if (e.target.name === 'valid_from' || e.target.name === 'valid_to') {
+                    userEditedTime = true;
+                }
+                updatePreview();
+            });
             input.addEventListener('change', updatePreview);
         });
     }
