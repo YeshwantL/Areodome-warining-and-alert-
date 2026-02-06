@@ -7,9 +7,9 @@ from datetime import datetime
 # Allow standalone execution
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fetch_data import fetch_metar_data
-from parse_metar import parse_metar
-from model import WindPredictor, load_data, save_data
+from app.services.fetch_data import fetch_metar_data
+from app.services.parse_metar import parse_metar
+from app.services.model import WindPredictor, load_data, save_data
 
 router = APIRouter(
     prefix="/prediction",

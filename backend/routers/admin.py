@@ -8,7 +8,8 @@ from typing import Optional
 # Allow standalone execution
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import models, database, auth
+import models, database
+from app.auth import auth
 
 router = APIRouter(
     prefix="/admin",

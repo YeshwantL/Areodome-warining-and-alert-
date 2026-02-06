@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 import os
@@ -81,3 +81,61 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
 
 async def get_current_active_user(current_user: models.User = Depends(get_current_user)):
     return current_user
+
+async def get_user_from_session(request: Request, db: Session = Depends(database.get_db)) -> Optional[models.User]:
+    user_id = request.session.get("user_id")
+    sid = request.session.get("sid")
+    if not user_id or not sid:
+        return None
+        
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        return None
+        
+    # Session Control
+    if sid != user.active_session_id:
+        return None
+        
+    return user
+
+async def get_optional_user(
+    request: Request,
+    db: Session = Depends(database.get_db),
+    token: str = Depends(oauth2_scheme) # This might force 401 if missing... we need a workaround for pages
+):
+    # This dependency logic is tricky because oauth2_scheme raises 401.
+    # We should probably use a custom dependency or loose checking in routers.
+    pass
+
+# Better approach:
+# For pages, we use `get_user_from_session`.
+# For APIs, we use `get_current_user`.
+# Mixed usage:
+async def get_current_user_or_none(
+    request: Request,
+    db: Session = Depends(database.get_db)
+):
+    # Try session first (cheaper, no crypto decode)
+    user = await get_user_from_session(request, db)
+    if user:
+        return user
+        
+    # If no session, try header (manual check to avoid 401)
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        try:
+            # Re-use logic or call get_current_user directly?
+            # Calling get_current_user requires mocking depends which is hard here.
+            # Let's just decode manually.
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            username: str = payload.get("sub")
+            sid: str = payload.get("sid")
+            if username:
+                user = db.query(models.User).filter(models.User.username == username).first()
+                if user and user.active_session_id == sid:
+                    return user
+        except JWTError:
+            pass
+            
+    return None

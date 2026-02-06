@@ -10,8 +10,9 @@ from sqlalchemy.sql import func
 # Allow standalone execution
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import database, models, schemas, auth
-import transmet
+import database, models, schemas
+from app.auth import auth
+from app.services import transmet
 from models import TransmetStatus
 import re
 
@@ -227,7 +228,7 @@ async def get_active_alerts(
 
 
 
-import ftp_client
+from app.services import ftp_client
 
 @router.post("/{alert_id}/finalize", response_model=schemas.Alert)
 async def finalize_alert(

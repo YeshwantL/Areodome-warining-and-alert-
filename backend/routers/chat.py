@@ -8,7 +8,8 @@ from typing import List, Optional
 # Allow standalone execution
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import database, models, schemas, auth
+import database, models, schemas
+from app.auth import auth
 
 router = APIRouter(
     prefix="/chat",

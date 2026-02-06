@@ -1,6 +1,7 @@
 import sys
 import os
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
@@ -8,12 +9,17 @@ from datetime import timedelta
 # Allow standalone execution
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import database, models, schemas, auth
+import database, models, schemas
+from app.auth import auth
 
 router = APIRouter(tags=["Authentication"])
 
 @router.post("/token", response_model=schemas.Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(database.get_db)):
+async def login_for_access_token(
+    request: Request, # Added Request
+    form_data: OAuth2PasswordRequestForm = Depends(), 
+    db: Session = Depends(database.get_db)
+):
     user = db.query(models.User).filter(models.User.username == form_data.username).first()
     if not user or not auth.verify_password(form_data.password, user.password_hash):
         raise HTTPException(
@@ -25,6 +31,10 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     new_sid = str(uuid.uuid4())
     user.active_session_id = new_sid
     db.commit()
+    
+    # Set Persistent Session
+    request.session["user_id"] = user.id
+    request.session["sid"] = new_sid
 
     access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = auth.create_access_token(
@@ -32,6 +42,11 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+@router.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=302)
 
 @router.get("/me", response_model=schemas.User)
 async def read_users_me(current_user: models.User = Depends(auth.get_current_active_user)):

@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+      - ./sql_app.db:/app/sql_app.db
+    environment:
+      - DATABASE_URL=sqlite:////app/sql_app.db
+    restart: unless-stopped
+
+  nginx:
+    build:
+      context: ./nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./static:/usr/share/nginx/html/static
+    depends_on:
+      - backend
+    restart: unless-stopped
