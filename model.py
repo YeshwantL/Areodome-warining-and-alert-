@@ -229,37 +229,55 @@ class WindPredictor:
 
                 p_speed = np.sqrt(pred_u**2 + pred_v**2)
                 
-                # FIX: For low wind speeds, use persistence direction instead of arctan2
-                # arctan2 produces arbitrary directions when u,v components are very small
-                if p_speed < 5.0:
-                    # Use persistence direction for low speeds
+                # Confidence Calculation
+                # Higher speed = higher confidence in direction.
+                # Low speed (< 5KT) implies high directional uncertainty.
+                confidence = np.clip(p_speed / 6.0, 0.3, 1.0) 
+
+                if p_speed < 1.0:
+                    # Calm
+                    p_dir = 0.0
+                elif p_speed < 3.0:
+                     # Very low speed: Highly dependent on persistence to avoid noise
                     p_dir = persistence_dir
                 else:
-                    # Calculate direction from U/V components for higher speeds
+                    # Calculate direction from U/V components
                     p_dir_rad = np.arctan2(-pred_u, -pred_v)
                     p_dir = np.degrees(p_dir_rad) % 360
-                
+                    
+                    # Adaptive Smoothing (Unstable data tolerance)
+                    # If we have a previous horizon (last_d), enforce continuity
+                    # If confidence is low, strictly limit the change (±20° tolerance)
+                    # If confidence is high, allow larger shifts
+                    
+                    diff_d = (p_dir - last_d + 180) % 360 - 180
+                    
+                    # Dynamic max delta based on confidence
+                    # Low conf -> max 20 deg change
+                    # High conf -> max 45 deg change
+                    max_delta = 20 + (confidence * 25) 
+                    
+                    if abs(diff_d) > max_delta:
+                         # Clamp the change
+                         p_dir = (last_d + np.sign(diff_d) * max_delta) % 360
+
                 # Continuity Smoothing (Speed)
                 diff_s = p_speed - last_s
-                if abs(diff_s) > 3.5: # 7 KT per hour approx
+                if abs(diff_s) > 3.5:
                     p_speed = last_s + np.sign(diff_s) * 3.5
 
-                # Continuity Smoothing (Direction)
-                # Calculate smallest difference on circle
-                diff_d = (p_dir - last_d + 180) % 360 - 180
-                if abs(diff_d) > 30: # Max 30 deg shift per step (smooth transition)
-                    p_dir = (last_d + np.sign(diff_d) * 30) % 360
-                
                 # Aviation Realism & Clipping
                 p_speed = np.clip(p_speed, 0, 45)
                 
                 final_speed = float(round(p_speed))
-                # If speed is 0, direction should be 0 (Calm)
+                
                 if final_speed < 1.0:
                     final_speed = 0.0
                     final_dir = 0.0
                 else:
-                    final_dir = float(round(p_dir / 5) * 5) % 360
+                    # Precise degrees (no 5-deg rounding)
+                    # Round to nearest integer for readability but keep precision
+                    final_dir = float(round(p_dir)) 
                     if final_dir == 360: final_dir = 0.0
                 
                 results[h] = (final_speed, final_dir)
@@ -292,7 +310,8 @@ class WindPredictor:
             else:
                 # Direction stays pure persistence (no artificial drift)
                 # Previous drift caused confusing 340 -> 335 shifts
-                p_d = float(round(d / 5) * 5) % 360
+                # Precise degrees (no 5-deg rounding)
+                p_d = float(round(d)) % 360
                 if p_d == 360: p_d = 0.0
             
             results[h] = (p_s, p_d)
